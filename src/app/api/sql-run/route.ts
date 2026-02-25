@@ -5,16 +5,6 @@ import { verifyAdminToken } from '../_auth';
 const dbUrl = process.env.SUPABASE_DB_URL;
 
 export async function POST(request: Request) {
-  const isProd = process.env.NODE_ENV === 'production';
-  const allowProd = process.env.SQL_CONSOLE_ALLOW_PROD === 'true';
-
-  if (isProd && !allowProd) {
-    return NextResponse.json(
-      { error: 'SQL 控制台已在生产环境禁用喵。' },
-      { status: 403 },
-    );
-  }
-
   const authHeader = request.headers.get('authorization') || undefined;
   if (!verifyAdminToken(authHeader)) {
     return NextResponse.json(
@@ -58,7 +48,7 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   } finally {
-    await client.end().catch(() => {});
+    await client.end().catch(() => { });
   }
 }
 
