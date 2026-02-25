@@ -49,7 +49,6 @@ export default function Home() {
   const [alistMsg, setAlistMsg] = useState<string | null>(null);
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
-  const [alistDownloadTarget, setAlistDownloadTarget] = useState<{ name: string; directUrl: string; proxyUrl: string } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -237,21 +236,17 @@ export default function Home() {
       const newPath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
       alistListDir(newPath);
     } else {
-      const ALIST_BASE = 'http://47.108.222.119:5244';
+      // 直接走我们的服务器端代理下载接口
+      // 服务器会加上 User-Agent: pan.baidu.com，无需任何浏览器插件
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
-      // 先取 sign，再弹出下载选择框
-      fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'get', path: filePath }),
-      }).then(r => r.json()).then(data => {
-        const sign = data.code === 200 ? (data.data?.sign || '') : '';
-        const directUrl = sign ? `${ALIST_BASE}/d${filePath}?sign=${sign}` : `${ALIST_BASE}/d${filePath}`;
-        const proxyUrl = sign ? `${ALIST_BASE}/p${filePath}?sign=${sign}` : `${ALIST_BASE}/p${filePath}`;
-        setAlistDownloadTarget({ name: item.name, directUrl, proxyUrl });
-      }).catch(() => {
-        setAlistDownloadTarget({ name: item.name, directUrl: `${ALIST_BASE}/d${filePath}`, proxyUrl: `${ALIST_BASE}/p${filePath}` });
-      });
+      const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+      // 创建隐藏 a 标签并点击，兼容移动端和桌面端
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = item.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
   };
 
