@@ -51,12 +51,13 @@ export async function GET(request: Request) {
         const rawUrl = getData.data.raw_url;
         const filename = path.split('/').pop() || 'download';
 
-        // 2. 以正确的 User-Agent 请求百度CDN直链
-        // 这就是"插件做的事"：加上百度识别的 UA
+        // 2. 根据存储后端设置合适的请求头
         const rangeHeader = request.headers.get('range');
-        const fetchHeaders: Record<string, string> = {
-            'User-Agent': 'pan.baidu.com',
-        };
+        const fetchHeaders: Record<string, string> = {};
+        // 只对百度 CDN 链接设置 pan.baidu.com UA
+        if (rawUrl.includes('baidupcs.com') || rawUrl.includes('baidu.com')) {
+            fetchHeaders['User-Agent'] = 'pan.baidu.com';
+        }
         if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
 
         const fileRes = await fetch(rawUrl, { headers: fetchHeaders });
