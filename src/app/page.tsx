@@ -288,11 +288,15 @@ export default function Home() {
     } else {
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
       const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
+      const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
         // 百度大文件(≥20MB)：弹出下载方式选择
         setAlistDownloadModal({ name: item.name, filePath });
+      } else if (isAliyun) {
+        // 阿里云盘：签名URL不支持浏览器直跳，走代理
+        alistProxyDownload(filePath, item.name);
       } else {
-        // 其他所有情况（非百度、百度小文件）：直接走 /d/ 直链
+        // 百度小文件、123网盘等：直链下载
         alistDirectDownload(filePath, item.name);
       }
     }
@@ -300,10 +304,11 @@ export default function Home() {
 
   const alistBatchDownload = () => {
     const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
+    const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
     alistSelected.forEach(name => {
       const file = alistFiles.find((f: any) => f.name === name);
       const filePath = `${alistPath.replace(/\/+$/, '')}/${name}`;
-      if (isBaidu && file && (file.size || 0) >= SIZE_THRESHOLD) {
+      if (isAliyun || (isBaidu && file && (file.size || 0) >= SIZE_THRESHOLD)) {
         alistProxyDownload(filePath, name);
       } else {
         alistDirectDownload(filePath, name);
