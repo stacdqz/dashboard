@@ -921,55 +921,9 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 文件下载选择弹窗 */}
-              {alistDownloadTarget && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAlistDownloadTarget(null)}>
-                  <div className="w-full max-w-md bg-[#0c0c0e] border border-zinc-700 rounded-2xl p-5 shadow-2xl mx-4" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1">下载文件</div>
-                        <div className="text-sm text-white font-mono truncate max-w-[300px]" title={alistDownloadTarget.name}>{alistDownloadTarget.name}</div>
-                      </div>
-                      <button onClick={() => setAlistDownloadTarget(null)} className="text-zinc-600 hover:text-zinc-300 text-lg">✕</button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {/* 选项1：复制直链（高速） */}
-                      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="text-[11px] font-bold text-emerald-400">🚀 高速直链（推荐）</div>
-                            <div className="text-[10px] text-zinc-500 mt-0.5">粘贴到 迅雷 / IDM / aria2，配合 SVIP 满速下载</div>
-                          </div>
-                          <button
-                            onClick={() => { navigator.clipboard.writeText(alistDownloadTarget.directUrl); setAlistMsg('✅ 直链已复制，请在迅雷/IDM中粘贴！'); setAlistDownloadTarget(null); }}
-                            className="px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-bold rounded-lg hover:bg-emerald-400 transition-colors shrink-0 ml-2"
-                          >复制链接</button>
-                        </div>
-                        <div className="bg-black/50 rounded px-2 py-1 text-[10px] text-zinc-500 font-mono truncate">{alistDownloadTarget.directUrl}</div>
-                        <div className="mt-2 text-[10px] text-zinc-600">
-                          curl 命令：<span className="text-zinc-400 font-mono select-all">{`curl -L -o "${alistDownloadTarget.name}" -H "User-Agent:pan.baidu.com" "${alistDownloadTarget.directUrl}"`}</span>
-                          <button className="ml-1 text-pink-400 hover:text-pink-300" onClick={() => navigator.clipboard.writeText(`curl -L -o "${alistDownloadTarget.name}" -H "User-Agent:pan.baidu.com" "${alistDownloadTarget.directUrl}"`)}>📋</button>
-                        </div>
-                      </div>
-
-                      {/* 选项2：代理下载（慢但稳定） */}
-                      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex items-center justify-between">
-                        <div>
-                          <div className="text-[11px] font-bold text-zinc-400">🐢 服务器代理下载</div>
-                          <div className="text-[10px] text-zinc-600 mt-0.5">受服务器带宽限制，但无需工具</div>
-                        </div>
-                        <button
-                          onClick={() => { window.open(alistDownloadTarget.proxyUrl, '_blank'); setAlistDownloadTarget(null); }}
-                          className="px-3 py-1.5 bg-zinc-700 text-zinc-300 text-[11px] font-bold rounded-lg hover:bg-zinc-600 transition-colors shrink-0 ml-2"
-                        >浏览器下载</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Cloud_Drive 网盘面板 */}
+
               <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl overflow-hidden">
                 {/* 头部 */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-black/40">
