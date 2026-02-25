@@ -192,7 +192,7 @@ export default function Home() {
 
   if (!adminToken) {
     return (
-      <div className="min-h-screen bg-[#050506] text-zinc-300 flex items-center justify-center">
+      <div className="min-h-screen bg-[#050506] text-zinc-300 flex items-center justify-center p-4">
         <div className="w-full max-w-sm bg-black/60 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
           <div className="text-[10px] font-black tracking-widest uppercase italic text-zinc-500 mb-4">
             ZERO_OS Admin Login
@@ -664,17 +664,17 @@ export default function Home() {
     <div className="h-screen bg-[#050506] text-zinc-300 font-mono flex flex-col overflow-hidden selection:bg-pink-500/30">
 
       {/* 顶部状态栏 */}
-      <header className="h-10 bg-[#0c0c0e] border-b border-zinc-800 flex items-center justify-between px-6 text-[10px] font-bold tracking-widest text-zinc-500">
-        <div className="flex items-center gap-4">
+      <header className="h-10 bg-[#0c0c0e] border-b border-zinc-800 flex items-center justify-between px-3 md:px-6 text-[10px] font-bold tracking-widest text-zinc-500">
+        <div className="flex items-center gap-2 md:gap-4">
           <span>USER: <span className="text-pink-500">哥哥酱</span></span>
           <span className="opacity-30">|</span>
-          <span>ENV: <span className="text-emerald-500">PRODUCTION</span></span>
+          <span>ENV: <span className="text-emerald-500">PROD</span></span>
         </div>
-        <div className="flex items-center gap-4">
-          <span>RAM: 8GB (OPTIMIZED)</span>
-          <span className="opacity-30">|</span>
-          <span>UPTIME: 99.9%</span>
-          <span className="opacity-30">|</span>
+        <div className="flex items-center gap-2 md:gap-4">
+          <span className="hidden md:inline">RAM: 8GB (OPT)</span>
+          <span className="opacity-30 hidden md:inline">|</span>
+          <span className="hidden sm:inline">UPTIME: 99.9%</span>
+          <span className="opacity-30 hidden sm:inline">|</span>
           <button
             onClick={handleLogout}
             className="text-[10px] text-zinc-500 hover:text-pink-400 transition-colors"
@@ -684,21 +684,21 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* 左侧侧边栏 */}
-        <aside className="w-20 border-r border-zinc-800 bg-[#08080a] flex flex-col items-center py-6 gap-6 shadow-2xl z-10">
-          <button onClick={() => setContext('home')} className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${context === 'home' ? 'bg-pink-500/20 border border-pink-500/50 text-white' : 'hover:bg-zinc-800 text-zinc-600'}`}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+        {/* 侧边栏 (移动端变顶部导航) */}
+        <aside className="w-full md:w-20 border-b md:border-b-0 md:border-r border-zinc-800 bg-[#08080a] flex flex-row md:flex-col items-center justify-center md:justify-start py-2 md:py-6 gap-2 md:gap-6 shadow-2xl z-10 overflow-x-auto">
+          <button onClick={() => setContext('home')} className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all shrink-0 ${context === 'home' ? 'bg-pink-500/20 border border-pink-500/50 text-white' : 'hover:bg-zinc-800 text-zinc-600'}`}>
+            <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
           </button>
-          <div className="w-8 h-[1px] bg-zinc-800" />
+          <div className="w-[1px] h-6 md:w-8 md:h-[1px] bg-zinc-800 shrink-0" />
           {Object.entries(PROJECTS_CONFIG).map(([id, p]: any) => (
             <button
               key={id} onClick={() => setContext(id)}
-              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all group relative ${context === id ? 'bg-zinc-800 border-l-4 border-pink-500 text-white' : 'hover:bg-zinc-800 text-zinc-600'}`}
+              className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all group relative shrink-0 ${context === id ? 'bg-zinc-800 border-b-4 md:border-b-0 md:border-l-4 border-pink-500 text-white' : 'hover:bg-zinc-800 text-zinc-600'}`}
             >
-              <span className="text-xl">🪄</span>
-              {/* 悬停提示 */}
-              <div className="absolute left-14 bg-black border border-zinc-800 px-3 py-1 rounded text-[10px] hidden group-hover:block whitespace-nowrap z-50 text-white shadow-xl">
+              <span className="text-lg md:text-xl">🪄</span>
+              {/* 悬停提示 (仅 PC 端) */}
+              <div className="absolute left-14 bg-black border border-zinc-800 px-3 py-1 rounded text-[10px] hidden md:group-hover:block whitespace-nowrap z-50 text-white shadow-xl">
                 {p.name}
               </div>
             </button>
@@ -706,14 +706,14 @@ export default function Home() {
         </aside>
 
         {/* 中央主工作区 */}
-        <main className="flex-1 bg-[#050506] p-10 overflow-y-auto relative">
+        <main className="flex-1 bg-[#050506] p-4 md:p-10 overflow-y-auto relative">
           {context === 'home' ? (
             /* --- 全局主页 --- */
             <section className="animate-in fade-in duration-500 max-w-5xl mx-auto">
-              <h1 className="text-5xl font-black text-white mb-2 tracking-tighter italic">SYSTEM_ROOT</h1>
-              <p className="text-zinc-500 mb-10">欢迎回来，哥哥。所有系统运行正常。</p>
+              <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tighter italic">SYSTEM_ROOT</h1>
+              <p className="text-zinc-500 mb-6 md:mb-10 text-sm md:text-base">欢迎回来，哥哥。所有系统运行正常。</p>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
                 <GlobalCard label="PROJECTS" value={Object.keys(PROJECTS_CONFIG).length} sub="Active Repos" />
                 <GlobalCard label="API STATUS" value="ONLINE" sub="Connected" color="text-green-400" />
                 <GlobalCard label="CPU" value={systemInfo ? `${systemInfo.cpu.usage}%` : '...'} sub={systemInfo ? `${systemInfo.cpu.cores} Cores` : 'Loading'} color="text-orange-400" />
@@ -721,17 +721,17 @@ export default function Home() {
               </div>
 
               {/* 系统信息面板 */}
-              <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 mb-6">
+              <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 md:p-6 mb-6">
                 <div className="text-[10px] text-zinc-500 uppercase font-bold mb-4 tracking-widest">System_Hardware_Info</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-4">
                   <div className="space-y-3">
-                    <div className="flex justify-between text-xs"><span className="text-zinc-500">Machine ID</span><span className="text-pink-400 font-mono">{systemInfo?.machine?.id || '...'}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-zinc-500">Hostname</span><span className="text-white font-mono">{systemInfo?.machine?.hostname || '...'}</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-zinc-500">Platform</span><span className="text-white">{systemInfo?.machine?.platform || '...'} ({systemInfo?.machine?.arch || '...'})</span></div>
-                    <div className="flex justify-between text-xs"><span className="text-zinc-500">Node.js</span><span className="text-emerald-400">{systemInfo?.machine?.nodeVersion || '...'}</span></div>
+                    <div className="flex justify-between items-center text-xs"><span className="text-zinc-500 shrink-0">Machine ID</span><span className="text-pink-400 font-mono truncate ml-2">{systemInfo?.machine?.id || '...'}</span></div>
+                    <div className="flex justify-between items-center text-xs"><span className="text-zinc-500 shrink-0">Hostname</span><span className="text-white font-mono truncate ml-2">{systemInfo?.machine?.hostname || '...'}</span></div>
+                    <div className="flex justify-between items-center text-xs"><span className="text-zinc-500 shrink-0">Platform</span><span className="text-white truncate ml-2">{systemInfo?.machine?.platform || '...'} ({systemInfo?.machine?.arch || '...'})</span></div>
+                    <div className="flex justify-between items-center text-xs"><span className="text-zinc-500 shrink-0">Node.js</span><span className="text-emerald-400 truncate ml-2">{systemInfo?.machine?.nodeVersion || '...'}</span></div>
                   </div>
                   <div className="space-y-3">
-                    <div className="flex justify-between text-xs"><span className="text-zinc-500">CPU Model</span><span className="text-white font-mono text-[11px] truncate ml-4">{systemInfo?.cpu?.model || '...'}</span></div>
+                    <div className="flex justify-between items-center text-xs"><span className="text-zinc-500 shrink-0">CPU Model</span><span className="text-white font-mono text-[11px] truncate ml-2">{systemInfo?.cpu?.model || '...'}</span></div>
                     <div className="flex justify-between text-xs"><span className="text-zinc-500">CPU Usage</span>
                       <div className="flex items-center gap-2">
                         <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${systemInfo?.cpu?.usage || 0}%` }} /></div>
@@ -756,23 +756,23 @@ export default function Home() {
           ) : (
             /* --- 项目详情页 (带真实数据！) --- */
             <section className="animate-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
-              <header className="mb-10 flex justify-between items-end">
+              <header className="mb-6 md:mb-10 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 sm:gap-0">
                 <div>
                   <div className="flex items-center gap-2 mb-2 text-pink-500 font-bold text-xs uppercase tracking-[0.3em]">
                     <span className="w-2 h-2 bg-pink-500 rounded-full animate-ping"></span>
                     Live_Connection
                   </div>
-                  <h1 className="text-6xl font-black text-white tracking-tighter mb-2">{activeProject.name}</h1>
-                  <p className="text-zinc-500 text-sm font-mono">{activeProject.domain}</p>
+                  <h1 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-2 break-all">{activeProject.name}</h1>
+                  <p className="text-zinc-500 text-xs md:text-sm font-mono break-all">{activeProject.domain}</p>
                 </div>
                 {/* 右上角的大状态徽章 */}
-                <div className={`px-4 py-2 rounded-lg border text-sm font-bold flex flex-col items-end ${realData?.vercel?.status === 'READY' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'}`}>
+                <div className={`w-full sm:w-auto px-4 py-2 rounded-lg border text-sm font-bold flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center ${realData?.vercel?.status === 'READY' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'}`}>
                   <span>VERCEL STATUS</span>
-                  <span className="text-xl">{loading ? 'LOADING...' : (realData?.vercel?.status || 'UNKNOWN')}</span>
+                  <span className="text-lg md:text-xl">{loading ? 'LOADING...' : (realData?.vercel?.status || 'UNKNOWN')}</span>
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
                 {/* 左侧：真实数据监控卡片 */}
                 <div className="lg:col-span-2 space-y-6">
                   <h2 className="text-zinc-500 text-[10px] font-black tracking-widest uppercase italic">Realtime_Telemetry</h2>
@@ -877,11 +877,11 @@ export default function Home() {
 
                   {/* 深度链接区 */}
                   <h2 className="text-zinc-500 text-[10px] font-black tracking-widest uppercase italic pt-4">Deep_Link_Gates</h2>
-                  <div className="grid grid-cols-2 gap-3 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                     <DeepLink label="GITHUB REPO" sub={activeProject.github_repo} onClick={() => window.open(`https://github.com/${activeProject.github_repo}`)} />
                     <DeepLink label="VERCEL DASH" sub="项目控制台" onClick={() => window.open(`https://vercel.com/${activeProject.vercel_project}`)} />
                     <DeepLink label="ALI DNS" sub="解析设置" onClick={() => window.open(`https://dnsnext.console.aliyun.com/authoritative/domains/${activeProject.ali_dns}`)} />
-                    <DeepLink label="PRODUCTION" sub="访问线上版" onClick={() => window.open(`https://${activeProject.domain}`)} className="col-span-2 border-pink-500/50 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20" />
+                    <DeepLink label="PRODUCTION" sub="访问线上版" onClick={() => window.open(`https://${activeProject.domain}`)} className="sm:col-span-2 border-pink-500/50 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20" />
                   </div>
 
                   {/* GitHub 文件概览 */}
@@ -1096,26 +1096,26 @@ export default function Home() {
       </div>
 
       {/* 底部终端抽屉 */}
-      <footer className={`border-t border-zinc-800 bg-black flex flex-col transition-all duration-300 ${termOpen ? 'h-64' : 'h-9'} z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]`}>
-        <div onClick={() => setTermOpen(!termOpen)} className="bg-[#0c0c0e] px-6 py-2 flex justify-between items-center cursor-pointer text-[10px] font-black text-zinc-500 hover:text-zinc-300 select-none">
+      <footer className={`border-t border-zinc-800 bg-black flex flex-col transition-all duration-300 ${termOpen ? 'h-64 md:h-64' : 'h-9'} z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]`}>
+        <div onClick={() => setTermOpen(!termOpen)} className="bg-[#0c0c0e] px-3 md:px-6 py-2 flex justify-between items-center cursor-pointer text-[10px] font-black text-zinc-500 hover:text-zinc-300 select-none">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span>{context.toUpperCase()} @ TERMINAL_V2</span>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shrink-0"></div>
+            <span className="truncate">{context.toUpperCase()} @ TERMINAL_V2</span>
           </div>
-          <span>{termOpen ? 'MINIMIZE _' : 'EXPAND ^'}</span>
+          <span className="shrink-0 ml-2">{termOpen ? 'MINIMIZE _' : 'EXPAND ^'}</span>
         </div>
         {termOpen && (
-          <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto text-sm font-mono bg-black/80 backdrop-blur-md">
+          <div ref={scrollRef} className="flex-1 p-2 md:p-4 overflow-y-auto text-xs md:text-sm font-mono bg-black/80 backdrop-blur-md">
             {logs.map((log, i) => (
-              <div key={i} className={`mb-1 ${log.includes('ERROR') ? 'text-red-500' : log.includes('哥哥') ? 'text-pink-400 font-bold' : log.includes('NETWORK') ? 'text-blue-400' : 'text-emerald-600'}`}>
+              <div key={i} className={`mb-1 break-words ${log.includes('ERROR') ? 'text-red-500' : log.includes('哥哥') ? 'text-pink-400 font-bold' : log.includes('NETWORK') ? 'text-blue-400' : 'text-emerald-600'}`}>
                 {log}
               </div>
             ))}
-            <div className="flex gap-2 mt-2 items-center">
-              <span className="text-blue-500 font-bold">哥哥酱@ZERO:{context} $</span>
+            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 items-start sm:items-center">
+              <span className="text-blue-500 font-bold shrink-0">哥哥酱@ZERO:{context} $</span>
               <input
                 value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={runCmd}
-                className="bg-transparent border-none outline-none flex-1 text-white caret-pink-500 font-bold"
+                className="bg-transparent border-none outline-none w-full flex-1 text-white caret-pink-500 font-bold"
                 placeholder="输入指令..." autoFocus
               />
             </div>
