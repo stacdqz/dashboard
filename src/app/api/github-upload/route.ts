@@ -4,16 +4,6 @@ import { verifyAdminToken } from '../_auth';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 export async function POST(request: Request) {
-  const isProd = process.env.NODE_ENV === 'production';
-  const allowProd = process.env.GITHUB_UPLOAD_ALLOW_PROD === 'true';
-
-  if (isProd && !allowProd) {
-    return NextResponse.json(
-      { error: 'GitHub 一键上传已在生产环境禁用喵。' },
-      { status: 403 },
-    );
-  }
-
   const authHeader = request.headers.get('authorization') || undefined;
   if (!verifyAdminToken(authHeader)) {
     return NextResponse.json(
