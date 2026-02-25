@@ -53,6 +53,7 @@ export default function Home() {
   const [alistMsg, setAlistMsg] = useState<string | null>(null);
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
+  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -250,35 +251,61 @@ export default function Home() {
     }
   };
 
+  const ALIST_BASE = 'http://47.108.222.119:5244';
+  const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
+
+  // 小文件直接走 AList /d/ 302重定向（最快）
+  const alistDirectDownload = (filePath: string, fileName: string) => {
+    fetch('/api/alist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get', path: filePath }),
+    }).then(r => r.json()).then(data => {
+      const sign = data.code === 200 ? (data.data?.sign || '') : '';
+      const url = sign ? `${ALIST_BASE}/d${filePath}?sign=${sign}` : `${ALIST_BASE}/d${filePath}`;
+      window.open(url, '_blank');
+    }).catch(() => {
+      window.open(`${ALIST_BASE}/d${filePath}`, '_blank');
+    });
+  };
+
+  // 服务端代理下载（加 User-Agent: pan.baidu.com）
+  const alistProxyDownload = (filePath: string, fileName: string) => {
+    const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const alistNavigate = (item: any) => {
     if (item.is_dir) {
       const newPath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
-      setAlistSelected(new Set()); // 切换目录时清空选择
+      setAlistSelected(new Set());
       alistListDir(newPath);
     } else {
-      // 所有文件统一走服务器端代理下载
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
-      const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = item.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if ((item.size || 0) < SIZE_THRESHOLD) {
+        // 小文件：直接走 /d/ 302重定向，最快速度
+        alistDirectDownload(filePath, item.name);
+      } else {
+        // 大文件(≥20MB)：弹出下载方式选择
+        setAlistDownloadModal({ name: item.name, filePath });
+      }
     }
   };
 
   const alistBatchDownload = () => {
-    // 逐个触发下载
     alistSelected.forEach(name => {
+      const file = alistFiles.find((f: any) => f.name === name);
       const filePath = `${alistPath.replace(/\/+$/, '')}/${name}`;
-      const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (file && (file.size || 0) < SIZE_THRESHOLD) {
+        alistDirectDownload(filePath, name);
+      } else {
+        alistProxyDownload(filePath, name);
+      }
     });
     setAlistSelected(new Set());
   };
@@ -972,6 +999,60 @@ export default function Home() {
                 </div>
               </div>
 
+
+              {/* 大文件下载方式选择弹窗 */}
+              {alistDownloadModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAlistDownloadModal(null)}>
+                  <div className="w-full max-w-sm bg-[#0c0c0e] border border-zinc-700 rounded-2xl p-4 shadow-2xl mx-4" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">大文件下载 ≥20MB</div>
+                        <div className="text-xs text-white font-mono truncate max-w-[260px] mt-1">{alistDownloadModal.name}</div>
+                      </div>
+                      <button onClick={() => setAlistDownloadModal(null)} className="text-zinc-600 hover:text-zinc-300 text-lg">✕</button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {/* 代理下载 */}
+                      <button
+                        onClick={() => { alistProxyDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 hover:border-pink-500/50 transition-colors text-left"
+                      >
+                        <div>
+                          <div className="text-[11px] font-bold text-zinc-300">📥 服务器代理下载</div>
+                          <div className="text-[10px] text-zinc-600">无需任何工具，直接下载（速度受服务器带宽限制）</div>
+                        </div>
+                      </button>
+
+                      {/* 复制直链 */}
+                      <button
+                        onClick={() => {
+                          fetch('/api/alist', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
+                          }).then(r => r.json()).then(data => {
+                            const sign = data.code === 200 ? (data.data?.sign || '') : '';
+                            const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
+                            navigator.clipboard.writeText(url);
+                            setAlistMsg('✅ 直链已复制！粘贴到迅雷/IDM即可满速下载');
+                          }).catch(() => {
+                            navigator.clipboard.writeText(`${ALIST_BASE}/d${alistDownloadModal!.filePath}`);
+                            setAlistMsg('✅ 链接已复制');
+                          });
+                          setAlistDownloadModal(null);
+                        }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
+                      >
+                        <div>
+                          <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM）</div>
+                          <div className="text-[10px] text-zinc-600">粘贴到下载工具，SVIP 满速</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Cloud_Drive 网盘面板 */}
 
