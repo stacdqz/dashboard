@@ -25,6 +25,10 @@ export default function Home() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [logLimit, setLogLimit] = useState<string>("10");
+  const [ipStats, setIpStats] = useState<any[]>([]);
+  const [ipStatsLimit, setIpStatsLimit] = useState<string>("10");
+  const [ipStatsSummary, setIpStatsSummary] = useState<{ totalIPs: number; totalVisits: number } | null>(null);
+  const [alistSelected, setAlistSelected] = useState<Set<string>>(new Set());
 
   // === 真实数据状态 ===
   const [realData, setRealData] = useState<any>(null);
@@ -125,6 +129,19 @@ export default function Home() {
         }
       };
 
+      const fetchIpStats = async () => {
+        try {
+          const res = await fetch(`/api/ip-stats?project=${context}&limit=${ipStatsLimit}`);
+          const data = await res.json();
+          if (Array.isArray(data.stats)) {
+            setIpStats(data.stats);
+            setIpStatsSummary({ totalIPs: data.totalIPs, totalVisits: data.totalVisits });
+          }
+        } catch (e) {
+          setLogs(prev => [...prev, `[ERROR] IP统计加载失败喵...`]);
+        }
+      };
+
       const fetchDomains = async () => {
         try {
           const res = await fetch('/api/vercel-domains?project=' + context);
@@ -150,6 +167,7 @@ export default function Home() {
       fetchTotalRequests();
       fetchDomains();
       fetchFiles();
+      fetchIpStats();
       // 设置 60秒 自动刷新一次数据 & 访问日志
       const timer = setInterval(() => {
         fetchData();
@@ -157,10 +175,11 @@ export default function Home() {
         fetchTotalRequests();
         fetchDomains();
         fetchFiles();
+        fetchIpStats();
       }, 60000);
       return () => clearInterval(timer);
     }
-  }, [context, logLimit]);
+  }, [context, logLimit, ipStatsLimit]);
 
   // 3. 终端自动滚动
   useEffect(() => {
@@ -234,19 +253,51 @@ export default function Home() {
   const alistNavigate = (item: any) => {
     if (item.is_dir) {
       const newPath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
+      setAlistSelected(new Set()); // 切换目录时清空选择
       alistListDir(newPath);
     } else {
-      // 直接走我们的服务器端代理下载接口
-      // 服务器会加上 User-Agent: pan.baidu.com，无需任何浏览器插件
+      // 所有文件统一走服务器端代理下载
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
       const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
-      // 创建隐藏 a 标签并点击，兼容移动端和桌面端
       const a = document.createElement('a');
       a.href = downloadUrl;
       a.download = item.name;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+    }
+  };
+
+  const alistBatchDownload = () => {
+    // 逐个触发下载
+    alistSelected.forEach(name => {
+      const filePath = `${alistPath.replace(/\/+$/, '')}/${name}`;
+      const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+    setAlistSelected(new Set());
+  };
+
+  const alistToggleSelect = (name: string) => {
+    setAlistSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const alistSelectAll = () => {
+    const fileNames = alistFiles.filter((f: any) => !f.is_dir).map((f: any) => f.name);
+    if (alistSelected.size === fileNames.length) {
+      setAlistSelected(new Set()); // 取消全选
+    } else {
+      setAlistSelected(new Set(fileNames)); // 全选文件
     }
   };
 
@@ -1049,6 +1100,16 @@ export default function Home() {
 
                         return (
                           <div key={idx} className="flex items-center gap-2 px-4 py-2 hover:bg-zinc-800/40 transition-colors group">
+                            {/* 复选框 */}
+                            {!file.is_dir && (
+                              <input
+                                type="checkbox"
+                                checked={alistSelected.has(file.name)}
+                                onChange={() => alistToggleSelect(file.name)}
+                                className="w-3 h-3 accent-pink-500 shrink-0 cursor-pointer"
+                              />
+                            )}
+                            {file.is_dir && <span className="w-3 shrink-0" />}
                             {/* 缩略图或图标 */}
                             <span className="text-base shrink-0">{icon}</span>
 
@@ -1118,7 +1179,19 @@ export default function Home() {
 
                 {/* 底部状态栏 */}
                 <div className="px-4 py-2 border-t border-zinc-800/50 flex items-center justify-between text-[10px] text-zinc-600 bg-black/20">
-                  <span>{alistFiles.length} 个项目</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={alistSelectAll} className="hover:text-pink-400 transition-colors" title="全选/取消全选">
+                      {alistSelected.size > 0 ? `☑ ${alistSelected.size} 个文件` : `${alistFiles.length} 个项目`}
+                    </button>
+                    {alistSelected.size > 0 && (
+                      <button
+                        onClick={alistBatchDownload}
+                        className="text-[10px] text-pink-400 hover:text-pink-300 font-bold flex items-center gap-1"
+                      >
+                        ↓ 批量下载
+                      </button>
+                    )}
+                  </div>
                   <button onClick={() => window.open('http://47.108.222.119:5244', '_blank')} className="hover:text-pink-400 transition-colors">
                     在 AList 中打开 ↗
                   </button>
@@ -1449,6 +1522,61 @@ export default function Home() {
                           ))
                         )}
                       </div>
+
+                      {/* IP 访问统计 */}
+                      <div className="mt-4 pt-3 border-t border-zinc-800">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] font-black tracking-widest uppercase italic text-zinc-400">IP_Stats</span>
+                          <div className="flex items-center gap-2">
+                            {ipStatsSummary && (
+                              <span className="text-[9px] text-zinc-600">{ipStatsSummary.totalIPs} IPs · {ipStatsSummary.totalVisits} visits</span>
+                            )}
+                            <select
+                              value={ipStatsLimit}
+                              onChange={(e) => setIpStatsLimit(e.target.value)}
+                              className="bg-black/40 border border-zinc-800 rounded px-2 py-0.5 text-[10px] text-zinc-400 outline-none focus:border-pink-500 transition-colors"
+                            >
+                              <option value="1">1 IP</option>
+                              <option value="5">5 IPs</option>
+                              <option value="10">10 IPs</option>
+                              <option value="20">20 IPs</option>
+                              <option value="all">All IPs</option>
+                            </select>
+                            <button
+                              onClick={() => { setIpStats([]); fetch(`/api/ip-stats?project=${context}&limit=${ipStatsLimit}`).then(r => r.json()).then(d => { if (Array.isArray(d.stats)) { setIpStats(d.stats); setIpStatsSummary({ totalIPs: d.totalIPs, totalVisits: d.totalVisits }); } }); }}
+                              className="text-zinc-600 hover:text-pink-400 transition-colors" title="刷新IP统计"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </button>
+                          </div>
+                        </div>
+                        {/* 表头 */}
+                        {ipStats.length > 0 && (
+                          <div className="grid grid-cols-[1fr,60px,1fr,1fr,1fr] gap-2 pb-1 mb-1 border-b border-zinc-800 text-[9px] text-zinc-600 uppercase">
+                            <span>IP</span>
+                            <span>次数</span>
+                            <span>首次</span>
+                            <span>最近</span>
+                            <span>位置</span>
+                          </div>
+                        )}
+                        <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                          {ipStats.length === 0 ? (
+                            <div className="text-[11px] text-zinc-600">暂无统计数据喵...</div>
+                          ) : (
+                            ipStats.map((s: any, i: number) => (
+                              <div key={i} className="grid grid-cols-[1fr,60px,1fr,1fr,1fr] gap-2 text-[10px] py-0.5 hover:bg-zinc-800/30 rounded transition-colors">
+                                <span className="text-zinc-300 font-mono truncate" title={s.ip}>{s.ip}</span>
+                                <span className="text-pink-400 font-bold">{s.count}</span>
+                                <span className="text-zinc-600 truncate" title={s.firstVisit ? new Date(s.firstVisit).toLocaleString() : ''}>{s.firstVisit ? new Date(s.firstVisit).toLocaleDateString() : '-'}</span>
+                                <span className="text-zinc-500 truncate" title={s.lastVisit ? new Date(s.lastVisit).toLocaleString() : ''}>{s.lastVisit ? new Date(s.lastVisit).toLocaleDateString() : '-'}</span>
+                                <span className="text-zinc-500 truncate">{[s.city, s.region, s.country].filter(Boolean).join('/') || '-'}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
                       {/* SQL Editor 命令行 */}
                       <div className="mt-4 pt-3 border-t border-zinc-800">
                         <div className="text-[10px] font-black tracking-widest uppercase italic mb-1">
