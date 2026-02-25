@@ -245,15 +245,15 @@ export default function Home() {
         const ALIST_BASE = 'http://47.108.222.119:5244';
         const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
         if (data.code === 200 && data.data?.sign) {
-          // 用 AList 代理下载，sign 参数让 AList 服务端代为认证（绕过百度直链限制）
-          window.open(`${ALIST_BASE}/d${filePath}?sign=${data.data.sign}`, '_blank');
+          // /p/ = AList Web代理模式：AList服务器用 User-Agent: pan.baidu.com 中转下载
+          // /d/ 是302直链，浏览器UA会被百度拒绝（大文件sign error）
+          window.open(`${ALIST_BASE}/p${filePath}?sign=${data.data.sign}`, '_blank');
         } else {
-          // 无 sign 时说明文件可公开访问，直接走 AList 下载路径
-          window.open(`${ALIST_BASE}/d${filePath}`, '_blank');
+          window.open(`${ALIST_BASE}/p${filePath}`, '_blank');
         }
       }).catch(() => {
         const ALIST_BASE = 'http://47.108.222.119:5244';
-        window.open(`${ALIST_BASE}/d${alistPath.replace(/\/+$/, '')}/${item.name}`, '_blank');
+        window.open(`${ALIST_BASE}/p${alistPath.replace(/\/+$/, '')}/${item.name}`, '_blank');
       });
     }
   };
