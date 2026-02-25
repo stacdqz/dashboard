@@ -288,7 +288,7 @@ export default function Home() {
     } else {
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
       const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
-      const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
+      const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun') || alistPath.startsWith('/aliyun_new');
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
         // 百度大文件(≥20MB)：弹出下载方式选择
         setAlistDownloadModal({ name: item.name, filePath });
@@ -304,7 +304,7 @@ export default function Home() {
 
   const alistBatchDownload = () => {
     const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
-    const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
+    const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun') || alistPath.startsWith('/aliyun_new');
     alistSelected.forEach(name => {
       const file = alistFiles.find((f: any) => f.name === name);
       const filePath = `${alistPath.replace(/\/+$/, '')}/${name}`;
