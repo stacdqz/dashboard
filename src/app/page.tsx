@@ -54,7 +54,6 @@ export default function Home() {
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string } | null>(null);
-  const [alistDlProgress, setAlistDlProgress] = useState<{ name: string; percent: number; speed: string; done: boolean } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -254,10 +253,6 @@ export default function Home() {
 
   const ALIST_BASE = 'http://47.108.222.119:5244';
   const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
-  const BAIDU_PREFIX = '/baidu'; // 百度网盘根目录
-  const THREAD_COUNT = 32;
-
-  const isBaiduPath = (path: string) => path.toLowerCase().startsWith(BAIDU_PREFIX);
 
   // 小文件直接走 AList /d/ 302重定向（最快）
   const alistDirectDownload = (filePath: string, fileName: string) => {
@@ -285,80 +280,6 @@ export default function Home() {
     document.body.removeChild(a);
   };
 
-  // === 多线程下载引擎（百度专用） ===
-  const alistMultiThreadDownload = async (filePath: string, fileName: string, fileSize: number) => {
-    const startTime = Date.now();
-    setAlistDlProgress({ name: fileName, percent: 0, speed: '计算中...', done: false });
-    try {
-      // 1. 获取百度CDN直链
-      const getRes = await fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'get', path: filePath }),
-      });
-      const getData = await getRes.json();
-      if (getData.code !== 200 || !getData.data?.raw_url) {
-        throw new Error(getData.message || '获取直链失败');
-      }
-      const rawUrl = getData.data.raw_url;
-
-      // 2. 分块
-      const threads = Math.min(THREAD_COUNT, Math.max(1, Math.ceil(fileSize / (1024 * 1024)))); // 最少每块 1MB
-      const chunkSize = Math.ceil(fileSize / threads);
-      const chunks: { start: number; end: number; index: number }[] = [];
-      for (let i = 0; i < threads; i++) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize - 1, fileSize - 1);
-        chunks.push({ start, end, index: i });
-      }
-
-      // 3. 并行下载所有分块
-      let downloaded = 0;
-      const results = new Array<ArrayBuffer>(threads);
-
-      const downloadChunk = async (chunk: typeof chunks[0]) => {
-        const res = await fetch('/api/alist-chunk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: rawUrl, rangeStart: chunk.start, rangeEnd: chunk.end }),
-        });
-        if (!res.ok && res.status !== 206) {
-          throw new Error(`分块 ${chunk.index} 下载失败: ${res.status}`);
-        }
-        const buffer = await res.arrayBuffer();
-        results[chunk.index] = buffer;
-        downloaded += buffer.byteLength;
-        const elapsed = (Date.now() - startTime) / 1000;
-        const speedBps = downloaded / elapsed;
-        const speedStr = speedBps >= 1048576 ? `${(speedBps / 1048576).toFixed(1)} MB/s` : `${Math.round(speedBps / 1024)} KB/s`;
-        setAlistDlProgress({ name: fileName, percent: Math.round((downloaded / fileSize) * 100), speed: speedStr, done: false });
-      };
-
-      // 并发执行，最多同时 threads 个
-      await Promise.all(chunks.map(c => downloadChunk(c)));
-
-      // 4. 合并并保存
-      const blob = new Blob(results, { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-      const avgSpeed = fileSize / ((Date.now() - startTime) / 1000);
-      const avgStr = avgSpeed >= 1048576 ? `${(avgSpeed / 1048576).toFixed(1)} MB/s` : `${Math.round(avgSpeed / 1024)} KB/s`;
-      setAlistDlProgress({ name: fileName, percent: 100, speed: `完成 (${avgStr}, ${totalTime}s)`, done: true });
-      setTimeout(() => setAlistDlProgress(null), 5000);
-    } catch (e: any) {
-      setAlistMsg(`❌ 多线程下载失败: ${e.message}`);
-      setAlistDlProgress(null);
-    }
-  };
-
   const alistNavigate = (item: any) => {
     if (item.is_dir) {
       const newPath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
@@ -366,16 +287,11 @@ export default function Home() {
       alistListDir(newPath);
     } else {
       const filePath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
-      const fileSize = item.size || 0;
-
-      if (isBaiduPath(filePath) && fileSize >= SIZE_THRESHOLD) {
-        // 百度大文件：多线程下载引擎，自动加 UA: pan.baidu.com
-        alistMultiThreadDownload(filePath, item.name, fileSize);
-      } else if (fileSize < SIZE_THRESHOLD) {
-        // 小文件：直接 /d/ 302重定向
+      if ((item.size || 0) < SIZE_THRESHOLD) {
+        // 小文件：直接走 /d/ 302重定向，最快速度
         alistDirectDownload(filePath, item.name);
       } else {
-        // 非百度大文件：弹出选择
+        // 大文件(≥20MB)：弹出下载方式选择
         setAlistDownloadModal({ name: item.name, filePath });
       }
     }
@@ -385,10 +301,7 @@ export default function Home() {
     alistSelected.forEach(name => {
       const file = alistFiles.find((f: any) => f.name === name);
       const filePath = `${alistPath.replace(/\/+$/, '')}/${name}`;
-      const fileSize = file?.size || 0;
-      if (isBaiduPath(filePath) && fileSize >= SIZE_THRESHOLD) {
-        alistMultiThreadDownload(filePath, name, fileSize);
-      } else if (fileSize < SIZE_THRESHOLD) {
+      if (file && (file.size || 0) < SIZE_THRESHOLD) {
         alistDirectDownload(filePath, name);
       } else {
         alistProxyDownload(filePath, name);
@@ -1087,26 +1000,6 @@ export default function Home() {
               </div>
 
 
-              {/* 多线程下载进度条 */}
-              {alistDlProgress && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-[#0c0c0e] border border-zinc-700 rounded-xl p-3 shadow-2xl">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] text-white font-mono truncate max-w-[200px]">{alistDlProgress.name}</span>
-                    <span className="text-[10px] text-zinc-400 shrink-0 ml-2">{alistDlProgress.speed}</span>
-                  </div>
-                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${alistDlProgress.done ? 'bg-green-500' : 'bg-pink-500'}`}
-                      style={{ width: `${alistDlProgress.percent}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-[10px] text-zinc-500">{alistDlProgress.percent}%</span>
-                    {!alistDlProgress.done && <span className="text-[9px] text-zinc-600">32线程并行下载中...</span>}
-                  </div>
-                </div>
-              )}
-
               {/* 大文件下载方式选择弹窗 */}
               {alistDownloadModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAlistDownloadModal(null)}>
@@ -1120,14 +1013,18 @@ export default function Home() {
                     </div>
 
                     <div className="space-y-2">
-                      {/* 代理下载 */}
+                      {/* 自动加UA直接下载 */}
                       <button
-                        onClick={() => { alistProxyDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
-                        className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 hover:border-pink-500/50 transition-colors text-left"
+                        onClick={() => {
+                          const downloadUrl = `/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`;
+                          window.open(downloadUrl, '_blank');
+                          setAlistDownloadModal(null);
+                        }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border border-pink-500/40 rounded-lg px-3 py-2.5 hover:border-pink-400 transition-colors text-left"
                       >
                         <div>
-                          <div className="text-[11px] font-bold text-zinc-300">📥 服务器代理下载</div>
-                          <div className="text-[10px] text-zinc-600">无需任何工具，直接下载（速度受服务器带宽限制）</div>
+                          <div className="text-[11px] font-bold text-pink-400">� 直接下载（自动加 UA: pan.baidu.com）</div>
+                          <div className="text-[10px] text-zinc-500">服务器自动添加 User-Agent 请求头，一键下载</div>
                         </div>
                       </button>
 
@@ -1154,6 +1051,17 @@ export default function Home() {
                         <div>
                           <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM）</div>
                           <div className="text-[10px] text-zinc-600">粘贴到下载工具，SVIP 满速</div>
+                        </div>
+                      </button>
+
+                      {/* 直接302跳转（不加UA，小文件可能成功） */}
+                      <button
+                        onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
+                      >
+                        <div>
+                          <div className="text-[11px] font-bold text-zinc-400">⚡ 302直链跳转（不加UA）</div>
+                          <div className="text-[10px] text-zinc-600">直接跳转百度CDN，大文件可能被拦截</div>
                         </div>
                       </button>
                     </div>
