@@ -37,6 +37,19 @@ export default function Home() {
 
   const [systemInfo, setSystemInfo] = useState<any>(null);
 
+  // === AList 网盘状态 ===
+  const [alistPath, setAlistPath] = useState('/');
+  const [alistFiles, setAlistFiles] = useState<any[]>([]);
+  const [alistLoading, setAlistLoading] = useState(false);
+  const [alistError, setAlistError] = useState<string | null>(null);
+  const [alistMkdirName, setAlistMkdirName] = useState('');
+  const [alistShowMkdir, setAlistShowMkdir] = useState(false);
+  const [alistUploadFile, setAlistUploadFile] = useState<File | null>(null);
+  const [alistUploading, setAlistUploading] = useState(false);
+  const [alistMsg, setAlistMsg] = useState<string | null>(null);
+  const [alistRenaming, setAlistRenaming] = useState<string | null>(null); // stores path of file being renamed
+  const [alistNewName, setAlistNewName] = useState('');
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 1. 初始化
@@ -58,6 +71,10 @@ export default function Home() {
     };
     fetchSystemInfo();
     const sysTimer = setInterval(fetchSystemInfo, 5000);
+
+    // 初始化时加载网盘根目录
+    alistListDir('/');
+
     return () => clearInterval(sysTimer);
   }, []);
 
@@ -188,6 +205,153 @@ export default function Home() {
       window.localStorage.removeItem('ZERO_ADMIN_TOKEN');
     }
     setLogs(prev => [...prev, "[AUTH] 已退出管理员登录喵。"]);
+  };
+
+  // === AList 操作函数 ===
+  const alistListDir = async (path: string) => {
+    setAlistLoading(true);
+    setAlistError(null);
+    try {
+      const res = await fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', path }),
+      });
+      const data = await res.json();
+      if (data.code === 200) {
+        setAlistFiles(data.data?.content || []);
+        setAlistPath(path);
+      } else {
+        setAlistError(data.message || '加载失败喵...');
+      }
+    } catch {
+      setAlistError('网盘接口异常喵...');
+    } finally {
+      setAlistLoading(false);
+    }
+  };
+
+  const alistNavigate = (item: any) => {
+    if (item.is_dir) {
+      const newPath = `${alistPath.replace(/\/+$/, '')}/${item.name}`;
+      alistListDir(newPath);
+    } else {
+      // 获取下载链接
+      fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get', path: `${alistPath.replace(/\/+$/, '')}/${item.name}` }),
+      }).then(r => r.json()).then(data => {
+        if (data.code === 200 && data.data?.raw_url) {
+          window.open(data.data.raw_url, '_blank');
+        } else if (data.code === 200 && data.data?.sign) {
+          window.open(`${process.env.NEXT_PUBLIC_ALIST_URL || 'http://47.108.222.119:5244'}/d${alistPath.replace(/\/+$/, '')}/${item.name}?sign=${data.data.sign}`, '_blank');
+        } else {
+          // fallback: direct link
+          window.open(`http://47.108.222.119:5244/d${alistPath.replace(/\/+$/, '')}/${item.name}`, '_blank');
+        }
+      }).catch(() => {
+        window.open(`http://47.108.222.119:5244/d${alistPath.replace(/\/+$/, '')}/${item.name}`, '_blank');
+      });
+    }
+  };
+
+  const alistMkdir = async () => {
+    if (!alistMkdirName.trim()) return;
+    setAlistMsg(null);
+    try {
+      const res = await fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ action: 'mkdir', path: alistPath, dir_name: alistMkdirName.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 200) {
+        setAlistMsg('✅ 文件夹创建成功喵！');
+        setAlistMkdirName('');
+        setAlistShowMkdir(false);
+        alistListDir(alistPath);
+      } else {
+        setAlistMsg(`❌ ${data.message}`);
+      }
+    } catch { setAlistMsg('❌ 接口异常'); }
+  };
+
+  const alistRemove = async (name: string) => {
+    if (!confirm(`确认删除 ${name} 吗？`)) return;
+    setAlistMsg(null);
+    try {
+      const res = await fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ action: 'remove', path: alistPath, names: [name] }),
+      });
+      const data = await res.json();
+      if (data.code === 200) {
+        setAlistMsg('✅ 删除成功喵！');
+        alistListDir(alistPath);
+      } else {
+        setAlistMsg(`❌ ${data.message}`);
+      }
+    } catch { setAlistMsg('❌ 接口异常'); }
+  };
+
+  const alistRename = async (filePath: string) => {
+    if (!alistNewName.trim()) return;
+    setAlistMsg(null);
+    try {
+      const res = await fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ action: 'rename', path: filePath, newName: alistNewName.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 200) {
+        setAlistMsg('✅ 重命名成功喵！');
+        setAlistRenaming(null);
+        setAlistNewName('');
+        alistListDir(alistPath);
+      } else {
+        setAlistMsg(`❌ ${data.message}`);
+      }
+    } catch { setAlistMsg('❌ 接口异常'); }
+  };
+
+  const alistUpload = async () => {
+    if (!alistUploadFile || !adminToken) return;
+    setAlistUploading(true);
+    setAlistMsg(null);
+    try {
+      // AList 的上传接口需要直接请求（前端直接到 AList，需先登录返回 Token）
+      // 先通过我们的代理获取 AList Token
+      const tokenRes = await fetch('/api/alist-token', { method: 'POST' });
+      if (!tokenRes.ok) throw new Error('Cannot get AList token');
+      const { token: alistToken } = await tokenRes.json();
+
+      const uploadPath = alistPath.replace(/\/+$/, '') + '/' + alistUploadFile.name;
+      const uploadRes = await fetch(`http://47.108.222.119:5244/api/fs/put`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': alistToken,
+          'File-Path': encodeURIComponent(uploadPath),
+          'Content-Type': alistUploadFile.type || 'application/octet-stream',
+          'Content-Length': String(alistUploadFile.size),
+        },
+        body: alistUploadFile,
+      });
+      const uploadData = await uploadRes.json();
+      if (uploadData.code === 200) {
+        setAlistMsg('✅ 上传成功喵！');
+        setAlistUploadFile(null);
+        alistListDir(alistPath);
+      } else {
+        setAlistMsg(`❌ ${uploadData.message}`);
+      }
+    } catch (e: any) {
+      setAlistMsg(`❌ 上传失败: ${e.message}`);
+    } finally {
+      setAlistUploading(false);
+    }
   };
 
   if (!mounted) return <div className="bg-[#050506] min-h-screen" />;
@@ -763,9 +927,212 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="border border-dashed border-zinc-800 rounded-2xl p-12 text-center">
-                <p className="text-zinc-600 italic">请点击左侧图标或在终端输入 `cd magic` 进入项目控制台喵...</p>
+              {/* Cloud_Drive 网盘面板 */}
+              <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl overflow-hidden">
+                {/* 头部 */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-black/40">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black tracking-widest uppercase italic text-zinc-500">Cloud_Drive</span>
+                    <span className="text-[10px] text-zinc-600">· AList</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {adminToken && (
+                      <>
+                        <button
+                          onClick={() => setAlistShowMkdir(!alistShowMkdir)}
+                          className="text-[10px] text-zinc-500 hover:text-pink-400 transition-colors px-2 py-1 border border-zinc-800 rounded"
+                          title="新建文件夹"
+                        >+ 文件夹</button>
+                        <label className="text-[10px] text-zinc-500 hover:text-pink-400 transition-colors px-2 py-1 border border-zinc-800 rounded cursor-pointer" title="上传文件">
+                          {alistUploading ? '上传中...' : '↑ 上传'}
+                          <input type="file" className="hidden" onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (f) { setAlistUploadFile(f); }
+                          }} />
+                        </label>
+                      </>
+                    )}
+                    <button onClick={() => alistListDir(alistPath)} className="text-zinc-600 hover:text-pink-400 transition-colors" title="刷新">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 面包屑路径 */}
+                <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800/50 overflow-x-auto">
+                  {alistPath.split('/').filter(Boolean).length === 0 ? (
+                    <span className="text-pink-400 text-[11px] font-mono font-bold">/ Root</span>
+                  ) : (
+                    ['', ...alistPath.split('/').filter(Boolean)].map((seg, idx, arr) => {
+                      const crumbPath = '/' + arr.slice(1, idx + 1).join('/');
+                      return (
+                        <span key={idx} className="flex items-center gap-1">
+                          {idx > 0 && <span className="text-zinc-700">/</span>}
+                          <button
+                            onClick={() => alistListDir(idx === 0 ? '/' : crumbPath)}
+                            className={`text-[11px] font-mono hover:text-pink-400 transition-colors whitespace-nowrap ${idx === arr.length - 1 ? 'text-white font-bold' : 'text-zinc-500'}`}
+                          >
+                            {idx === 0 ? 'Root' : seg}
+                          </button>
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* 新建文件夹输入框 */}
+                {alistShowMkdir && (
+                  <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800/50 bg-zinc-900/60">
+                    <input
+                      value={alistMkdirName}
+                      onChange={e => setAlistMkdirName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && alistMkdir()}
+                      placeholder="新建文件夹名称..."
+                      className="flex-1 bg-black/40 border border-zinc-700 rounded px-2 py-1 text-[11px] text-white outline-none focus:border-pink-500 transition-colors"
+                      autoFocus
+                    />
+                    <button onClick={alistMkdir} className="px-2 py-1 text-[10px] bg-pink-500 text-white rounded font-bold hover:bg-pink-400">创建</button>
+                    <button onClick={() => { setAlistShowMkdir(false); setAlistMkdirName(''); }} className="px-2 py-1 text-[10px] text-zinc-500 hover:text-zinc-300">取消</button>
+                  </div>
+                )}
+
+                {/* 待上传文件确认 */}
+                {alistUploadFile && (
+                  <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800/50 bg-zinc-900/60">
+                    <span className="text-[11px] text-zinc-400 flex-1 truncate">📎 {alistUploadFile.name}</span>
+                    <button onClick={alistUpload} disabled={alistUploading} className="px-2 py-1 text-[10px] bg-pink-500 text-white rounded font-bold hover:bg-pink-400 disabled:opacity-50">
+                      {alistUploading ? '上传中...' : '确认上传'}
+                    </button>
+                    <button onClick={() => setAlistUploadFile(null)} className="px-2 py-1 text-[10px] text-zinc-500 hover:text-zinc-300">取消</button>
+                  </div>
+                )}
+
+                {/* 消息提示 */}
+                {alistMsg && (
+                  <div className={`px-4 py-1.5 text-[11px] font-bold border-b border-zinc-800/50 ${alistMsg.startsWith('✅') ? 'text-green-400 bg-green-500/5' : 'text-yellow-400 bg-yellow-500/5'}`}>
+                    {alistMsg}
+                  </div>
+                )}
+
+                {/* 文件列表 */}
+                <div className="max-h-96 overflow-y-auto">
+                  {alistLoading ? (
+                    <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">
+                      <svg className="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                      Loading...
+                    </div>
+                  ) : alistError ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-2">
+                      <span className="text-red-400 text-[11px]">{alistError}</span>
+                      <button onClick={() => alistListDir(alistPath)} className="text-[10px] text-zinc-500 hover:text-pink-400 border border-zinc-700 px-2 py-1 rounded">重试</button>
+                    </div>
+                  ) : alistFiles.length === 0 ? (
+                    <div className="flex items-center justify-center py-16 text-zinc-600 text-xs">📭 空目录</div>
+                  ) : (
+                    <div className="divide-y divide-zinc-800/50">
+                      {/* 返回上级 */}
+                      {alistPath !== '/' && (
+                        <button
+                          onClick={() => {
+                            const parent = alistPath.replace(/\/[^/]+\/?$/, '') || '/';
+                            alistListDir(parent);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/60 transition-colors text-left"
+                        >
+                          <span className="text-base">⬆️</span>
+                          <span className="text-[11px] text-zinc-500 font-mono">..</span>
+                        </button>
+                      )}
+
+                      {alistFiles.map((file: any, idx: number) => {
+                        const filePath = `${alistPath.replace(/\/+$/, '')}/${file.name}`;
+                        const isImage = /\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(file.name);
+                        const isVideo = /\.(mp4|mkv|avi|mov|webm)$/i.test(file.name);
+                        const isAudio = /\.(mp3|flac|wav|ogg|aac)$/i.test(file.name);
+                        const icon = file.is_dir ? '📁' : isImage ? '🖼️' : isVideo ? '🎬' : isAudio ? '🎵' : '📄';
+
+                        return (
+                          <div key={idx} className="flex items-center gap-2 px-4 py-2 hover:bg-zinc-800/40 transition-colors group">
+                            {/* 缩略图或图标 */}
+                            <span className="text-base shrink-0">{icon}</span>
+
+                            {/* 重命名状态 */}
+                            {alistRenaming === filePath ? (
+                              <div className="flex-1 flex items-center gap-2">
+                                <input
+                                  value={alistNewName}
+                                  onChange={e => setAlistNewName(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') alistRename(filePath); if (e.key === 'Escape') setAlistRenaming(null); }}
+                                  className="flex-1 bg-black/60 border border-zinc-700 rounded px-2 py-0.5 text-[11px] text-white outline-none focus:border-pink-500"
+                                  autoFocus
+                                />
+                                <button onClick={() => alistRename(filePath)} className="text-[10px] text-pink-400 font-bold hover:text-pink-300">✓</button>
+                                <button onClick={() => setAlistRenaming(null)} className="text-[10px] text-zinc-500 hover:text-zinc-300">✕</button>
+                              </div>
+                            ) : (
+                              <>
+                                {/* 文件名（可点击） */}
+                                <button
+                                  onClick={() => alistNavigate(file)}
+                                  className="flex-1 text-left text-[11px] font-mono text-zinc-300 hover:text-pink-400 transition-colors truncate"
+                                >
+                                  {file.name}
+                                </button>
+
+                                {/* 文件大小 */}
+                                {!file.is_dir && (
+                                  <span className="text-[10px] text-zinc-600 shrink-0 hidden sm:block">
+                                    {file.size >= 1073741824 ? `${(file.size / 1073741824).toFixed(1)}GB`
+                                      : file.size >= 1048576 ? `${(file.size / 1048576).toFixed(1)}MB`
+                                        : file.size >= 1024 ? `${Math.round(file.size / 1024)}KB`
+                                          : `${file.size}B`}
+                                  </span>
+                                )}
+
+                                {/* 修改时间 */}
+                                <span className="text-[10px] text-zinc-700 shrink-0 hidden md:block">
+                                  {file.modified ? new Date(file.modified).toLocaleDateString() : ''}
+                                </span>
+
+                                {/* 管理员操作按钮 */}
+                                {adminToken && (
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                    <button
+                                      onClick={() => { setAlistRenaming(filePath); setAlistNewName(file.name); }}
+                                      className="text-zinc-600 hover:text-blue-400 transition-colors p-0.5" title="重命名"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                    </button>
+                                    <button
+                                      onClick={() => alistRemove(file.name)}
+                                      className="text-zinc-600 hover:text-red-500 transition-colors p-0.5" title="删除"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 底部状态栏 */}
+                <div className="px-4 py-2 border-t border-zinc-800/50 flex items-center justify-between text-[10px] text-zinc-600 bg-black/20">
+                  <span>{alistFiles.length} 个项目</span>
+                  <button onClick={() => window.open('http://47.108.222.119:5244', '_blank')} className="hover:text-pink-400 transition-colors">
+                    在 AList 中打开 ↗
+                  </button>
+                </div>
               </div>
+
+              <div className="border border-dashed border-zinc-800/50 rounded-2xl p-6 text-center">
+                <p className="text-zinc-600 italic text-sm">请点击左侧图标或在终端输入 `cd magic` 进入项目控制台喵...</p>
+              </div>
+
             </section>
           ) : (
             /* --- 项目详情页 (带真实数据！) --- */
