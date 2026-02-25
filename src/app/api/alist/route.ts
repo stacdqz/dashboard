@@ -98,6 +98,7 @@ export async function POST(request: Request) {
                 break;
 
             case 'remove':
+                // AList /api/fs/remove 需要: dir=目录路径, names=[文件名数组] (非完整路径)
                 result = await alistFetch('/api/fs/remove', {
                     dir: path || '/',
                     names: names || (name ? [name] : []),
@@ -105,10 +106,14 @@ export async function POST(request: Request) {
                 break;
 
             case 'rename':
+                // AList /api/fs/rename 需要: path=文件完整路径, name=新文件名
+                // path 已在前端拼接为完整路径 (如 /百度网盘/folder/oldname.txt)
+                console.log('[alist] rename payload:', { path, name: newName });
                 result = await alistFetch('/api/fs/rename', {
                     path: path || '/',
-                    name: newName || '',
+                    name: (newName || '').trim(),
                 });
+                console.log('[alist] rename result:', JSON.stringify(result));
                 break;
 
             default:
