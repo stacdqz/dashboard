@@ -1054,6 +1054,33 @@ export default function Home() {
                         </div>
                       </button>
 
+                      {/* Cloudflare Workers 边缘代理 */}
+                      <button
+                        onClick={() => {
+                          fetch('/api/alist', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'get', path: alistDownloadModal!.filePath }),
+                          }).then(r => r.json()).then(data => {
+                            if (data.code === 200 && data.data?.raw_url) {
+                              const cfUrl = `https://rapid-snowflake-8b52.workers.dev/?url=${encodeURIComponent(data.data.raw_url)}`;
+                              window.open(cfUrl, '_blank');
+                            } else {
+                              setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                            }
+                          }).catch(() => {
+                            setAlistMsg('❌ 接口异常');
+                          });
+                          setAlistDownloadModal(null);
+                        }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border border-blue-500/30 rounded-lg px-3 py-2.5 hover:border-blue-400 transition-colors text-left"
+                      >
+                        <div>
+                          <div className="text-[11px] font-bold text-blue-400">☁️ Cloudflare 边缘加速</div>
+                          <div className="text-[10px] text-zinc-500">CF Worker 注入 UA，全球边缘节点中转，不耗服务器带宽</div>
+                        </div>
+                      </button>
+
                       {/* 直接302跳转（不加UA，小文件可能成功） */}
                       <button
                         onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
