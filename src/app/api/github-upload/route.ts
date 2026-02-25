@@ -30,15 +30,16 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { repo, filename, content } = body as {
+  const { repo, filename, content, base64 } = body as {
     repo?: string;
     filename?: string;
     content?: string;
+    base64?: string; // 二进制文件（图片等）直接传 base64
   };
 
-  if (!repo || !filename || !content) {
+  if (!repo || !filename || (!content && !base64)) {
     return NextResponse.json(
-      { error: 'repo / filename / content 不能为空喵...' },
+      { error: 'repo / filename / (content 或 base64) 不能为空喵...' },
       { status: 400 },
     );
   }
@@ -68,9 +69,14 @@ export async function POST(request: Request) {
     // 查不到没关系，当作新文件处理喵
   }
 
+  // 如果前端传了 base64（二进制文件模式），直接使用；否则按文本编码
+  const encodedContent = base64
+    ? base64
+    : Buffer.from(content!, 'utf8').toString('base64');
+
   const payload: any = {
     message: `chore: upload ${path} from ZERO_OS`,
-    content: Buffer.from(content, 'utf8').toString('base64'),
+    content: encodedContent,
   };
 
   if (existingSha) {

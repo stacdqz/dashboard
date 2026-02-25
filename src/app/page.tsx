@@ -16,6 +16,8 @@ export default function Home() {
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [ghFilename, setGhFilename] = useState("");
   const [ghContent, setGhContent] = useState("");
+  const [ghUploadMode, setGhUploadMode] = useState<'text' | 'file'>('text');
+  const [ghFileBase64, setGhFileBase64] = useState<string>("");
   const [ghUploading, setGhUploading] = useState(false);
   const [ghUploadMsg, setGhUploadMsg] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState<string | null>(null);
@@ -465,25 +467,32 @@ export default function Home() {
       setGhUploadMsg("文件名不能为空喵...");
       return;
     }
-    if (!ghContent.trim()) {
+    if (ghUploadMode === 'text' && !ghContent.trim()) {
       setGhUploadMsg("文件内容不能为空喵...");
+      return;
+    }
+    if (ghUploadMode === 'file' && !ghFileBase64) {
+      setGhUploadMsg("请选择上传的文件喵...");
       return;
     }
 
     setGhUploading(true);
     setGhUploadMsg(null);
     try {
+      const payload: any = { repo: proj.github_repo, filename };
+      if (ghUploadMode === 'text') {
+        payload.content = ghContent;
+      } else {
+        payload.base64 = ghFileBase64;
+      }
+
       const res = await fetch('/api/github-upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${adminToken}`,
         },
-        body: JSON.stringify({
-          repo: proj.github_repo,
-          filename,
-          content: ghContent,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -500,6 +509,7 @@ export default function Home() {
       setLogs(prev => [...prev, `[GITHUB] 已上传 ${filename} 到 ${proj.github_repo}`]);
       setGhFilename("");
       setGhContent("");
+      setGhFileBase64("");
     } catch (e) {
       setGhUploadMsg("GitHub 上传接口异常喵...");
     } finally {
@@ -650,16 +660,20 @@ export default function Home() {
 
   const handleGhFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setGhFileBase64("");
+      return;
+    }
     setGhFilename(file.name);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result?.toString() ?? "";
-      setGhContent(text);
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl && dataUrl.includes(',')) {
+        setGhFileBase64(dataUrl.split(',')[1]);
+      }
     };
-    reader.readAsText(file);
+    reader.readAsDataURL(file);
   };
-
   return (
     <div className="h-screen bg-[#050506] text-zinc-300 font-mono flex flex-col overflow-hidden selection:bg-pink-500/30">
 
@@ -926,43 +940,61 @@ export default function Home() {
                   <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between text-[10px] font-black tracking-widest uppercase italic text-zinc-500 mb-1">
                       <span>GitHub_Upload</span>
-                      <span className="text-zinc-600">{activeProject.github_repo}</span>
+                      <span className="text-zinc-600 truncate ml-2 max-w-[150px]">{activeProject.github_repo}</span>
                     </div>
+
+                    <div className="flex rounded-lg overflow-hidden border border-zinc-800 text-[10px]">
+                      <button onClick={() => setGhUploadMode('text')} className={`flex-1 py-1.5 text-center font-bold ${ghUploadMode === 'text' ? 'bg-pink-500 text-white' : 'bg-black/60 text-zinc-500 hover:bg-zinc-800'}`}>文本模式</button>
+                      <button onClick={() => setGhUploadMode('file')} className={`flex-1 py-1.5 text-center font-bold ${ghUploadMode === 'file' ? 'bg-pink-500 text-white' : 'bg-black/60 text-zinc-500 hover:bg-zinc-800'}`}>图片/文件模式</button>
+                    </div>
+
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                        <span className="whitespace-nowrap">选择本地文件：</span>
-                        <input
-                          type="file"
-                          onChange={handleGhFileSelect}
-                          className="flex-1 text-[10px] file:text-[10px] file:bg-zinc-800 file:border-0 file:px-2 file:py-1 file:mr-2 file:rounded"
-                        />
-                      </div>
                       <input
                         value={ghFilename}
                         onChange={(e) => setGhFilename(e.target.value)}
-                        placeholder="文件名（例如: README_ZERO.md 或 src/test.ts）"
-                        className="w-full bg-black/40 border border-zinc-800 rounded px-2 py-1 text-[11px] text-white outline-none focus:border-pink-500 transition-colors"
+                        placeholder={ghUploadMode === 'text' ? "文件名（例如: src/test.ts）" : "文件名（自动填充）"}
+                        className="w-full bg-black/40 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-white outline-none focus:border-pink-500 transition-colors"
                       />
-                      <textarea
-                        value={ghContent}
-                        onChange={(e) => setGhContent(e.target.value)}
-                        placeholder="在这里输入要上传到 GitHub 的文件内容喵..."
-                        rows={4}
-                        className="w-full bg-black/40 border border-zinc-800 rounded px-2 py-1 text-[11px] text-white outline-none focus:border-pink-500 transition-colors resize-none"
-                      />
+
+                      {ghUploadMode === 'text' ? (
+                        <textarea
+                          value={ghContent}
+                          onChange={(e) => setGhContent(e.target.value)}
+                          placeholder="在这里输入要上传到 GitHub 的文件内容喵..."
+                          rows={4}
+                          className="w-full bg-black/40 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-white outline-none focus:border-pink-500 transition-colors resize-none mb-2"
+                        />
+                      ) : (
+                        <div className="flex flex-col gap-2 mb-2">
+                          <label className={`flex items-center justify-center w-full h-24 bg-black/40 border border-dashed rounded cursor-pointer transition-colors ${ghFileBase64 ? 'border-pink-500/50 text-pink-400 bg-pink-500/5' : 'border-zinc-600 text-zinc-500 hover:border-pink-500 hover:bg-zinc-800/50'}`}>
+                            <div className="flex flex-col items-center justify-center gap-1">
+                              <span className="text-lg">{ghFileBase64 ? '✅' : '📁'}</span>
+                              <span className="text-[11px] font-mono font-bold mt-1 text-center px-4">
+                                {ghFileBase64 ? '文件已就绪，可直接上传' : '点击选择或拖拽文件到此处'}
+                              </span>
+                            </div>
+                            <input
+                              type="file"
+                              onChange={handleGhFileSelect}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <button
                           onClick={uploadToGithub}
                           disabled={ghUploading}
-                          className={`px-3 py-1.5 rounded text-[11px] font-bold ${ghUploading
+                          className={`px-4 py-1.5 rounded text-[11px] font-bold ${ghUploading
                             ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                            : 'bg-pink-500 text-white hover:bg-pink-400'
+                            : 'bg-pink-500 text-white hover:bg-pink-400 hover:-translate-y-0.5 transition-all shadow-lg hover:shadow-pink-500/25'
                             }`}
                         >
-                          {ghUploading ? 'UPLOADING...' : '一键上传到 GitHub'}
+                          {ghUploading ? 'UPLOADING...' : '一键上传'}
                         </button>
                         {ghUploadMsg && (
-                          <span className="text-[10px] text-zinc-400">
+                          <span className={`text-[10px] font-bold ${ghUploadMsg.includes('成功') ? 'text-green-400' : 'text-yellow-400'} shrink-0 ml-2 truncate max-w-[140px]`} title={ghUploadMsg}>
                             {ghUploadMsg}
                           </span>
                         )}
