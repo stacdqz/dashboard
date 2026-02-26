@@ -1186,7 +1186,38 @@ export default function Home() {
                             <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速多线程（Web NDM）</span>
                             <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold">黑科技</span>
                           </div>
-                          <div className="text-[10px] text-zinc-500 mt-1">免安装浏览器直接 8 线程满速下载，突破单线程限制</div>
+                          <div className="text-[10px] text-zinc-500 mt-1">免安装浏览器直接 8 线程下载，突破单线程限速，适合文件&lt;2GB</div>
+                        </div>
+                      </button>
+
+                      {/* ☁️ Cloudflare 单线程直连 */}
+                      <button
+                        onClick={() => {
+                          const w = window.open('about:blank', '_blank');
+                          fetch('/api/alist', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'get', path: alistDownloadModal!.filePath }),
+                          }).then(r => r.json()).then(data => {
+                            if (data.code === 200 && data.data?.raw_url) {
+                              const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
+                              if (w) w.location.href = cfUrl;
+                              else window.location.href = cfUrl;
+                            } else {
+                              if (w) w.close();
+                              setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                            }
+                          }).catch(() => {
+                            if (w) w.close();
+                            setAlistMsg('❌ 接口异常');
+                          });
+                          setAlistDownloadModal(null);
+                        }}
+                        className="w-full bg-zinc-900 border border-blue-500/10 rounded-lg px-3 py-2.5 hover:border-blue-400/50 transition-colors text-left"
+                      >
+                        <div>
+                          <div className="text-[11px] font-bold text-blue-300">☁️ CF 单线程直连下载</div>
+                          <div className="text-[10px] text-zinc-500">原版下载方式，单线程稳定流式传输，适合超大文件</div>
                         </div>
                       </button>
 
