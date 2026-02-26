@@ -27,9 +27,7 @@ export default function Home() {
   const [alistUploading, setAlistUploading] = useState(false);
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
-  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string, downloaded?: string, total?: string } | null>(null);
-  const [threadCount, setThreadCount] = useState<number | string>(3); // 默认3线程
+  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string } | null>(null);
 
   // === 远端 AList 设置（仅本地生效） ===
   const [showSettings, setShowSettings] = useState(false);
@@ -132,9 +130,16 @@ export default function Home() {
     finally { setAlistLoading(false); }
   };
   // === 下载逻辑 ===
-  const alistDirectDownload = (filePath: string, _fileName: string) => {
-    // 强制小文件走服务端代理，否则百度直链没有 User-Agent 会直接报 403 或者被切断为 0 字节
-    alistProxyDownload(filePath, _fileName);
+  const alistDirectDownload = (filePath: string, fileName: string) => {
+    fetchAlist({ action: 'get', path: filePath })
+      .then(r => r.json())
+      .then(data => {
+        const sign = data.code === 200 ? (data.data?.sign || '') : '';
+        const url = sign ? `${getAlistBase()}/d${filePath}?sign=${sign}` : `${getAlistBase()}/d${filePath}`;
+        window.open(url, '_blank');
+      }).catch(() => {
+        window.open(`${getAlistBase()}/d${filePath}`, '_blank');
+      });
   };
 
   const alistProxyDownload = (filePath: string, fileName: string) => {
@@ -143,177 +148,12 @@ export default function Home() {
     if (ccConfigStr) {
       downloadUrl += `&c=${btoa(encodeURIComponent(ccConfigStr))}`;
     }
-    window.location.href = downloadUrl; // 移动端直接跳转，后台会返回 attachment 头
-  };
-
-  const alistMultithreadDownload = async (cfUrl: string, fileName: string, fileSize: number) => {
-    try {
-      if (!fileSize) {
-        window.location.href = cfUrl;
-        return;
-      }
-
-      if (fileSize > 2 * 1024 * 1024 * 1024) {
-        setAlistMsg('❌ 文件超过2GB，可能导致浏览器内存不足崩溃，请改用“复制直链”');
-        return;
-      }
-
-      const maxProgressStr = (fileSize / 1024 / 1024).toFixed(2) + ' MB';
-      setDownloadProgress({ name: fileName, progress: 0, speed: '准备下载...', downloaded: '0 MB', total: maxProgressStr });
-      setAlistMsg(`🚀 开始浏览器多线程极速下载: ${fileName}`);
-
-      const chunkSize = 5 * 1024 * 1024; // 每块 5MB
-      const chunksCount = Math.ceil(fileSize / chunkSize);
-      const chunks: Blob[] = new Array(chunksCount);
-
-      let downloadedBytes = 0;
-      let lastTime = Date.now();
-      let lastBytes = 0;
-      let nextChunkIndex = 0;
-      const PARALLEL_REQUESTS = typeof threadCount === 'number' && threadCount > 0 && threadCount <= 32 ? threadCount : 3;
-
-      let isCancelled = false;
-      const activeControllers = new Set<AbortController>();
-      cancelWebNDMRef.current = () => {
-        isCancelled = true;
-        activeControllers.forEach(c => c.abort());
-        setDownloadProgress(null);
-        setAlistMsg('⏸️ 已取消下载');
-      };
-
-      const progressTimer = setInterval(() => {
-        const now = Date.now();
-        const duration = (now - lastTime) / 1000;
-        if (duration >= 1) {
-          const speedBytes = downloadedBytes - lastBytes;
-          const speedMBps = (speedBytes / 1024 / 1024 / duration).toFixed(2);
-          setDownloadProgress({
-            name: fileName,
-            progress: Math.min(99, Math.round((downloadedBytes / fileSize) * 100)),
-            speed: `${speedMBps} MB/s`,
-            downloaded: (downloadedBytes / 1024 / 1024).toFixed(2) + ' MB',
-            total: maxProgressStr
-          });
-          lastTime = now;
-          lastBytes = downloadedBytes;
-        }
-      }, 1000);
-
-      const downloadChunk = async (index: number) => {
-        const originalStart = index * chunkSize;
-        let currentStart = originalStart;
-        const end = Math.min(originalStart + chunkSize - 1, fileSize - 1);
-        const chunkData: any[] = [];
-
-        let retries = 15;
-        let speedThreshold = 80 * 1024; // 3秒 80KB 的底线要求
-
-        while (currentStart <= end && retries > 0) {
-          if (isCancelled) throw new Error('CanceledByUser');
-          const controller = new AbortController();
-          activeControllers.add(controller);
-
-          let fetchBytes = 0;
-          let lastCheckBytes = 0;
-          let connected = false;
-
-          const speedCheck = setInterval(() => {
-            if (!connected) return;
-            const speed = fetchBytes - lastCheckBytes;
-            lastCheckBytes = fetchBytes;
-            // 如果连接建立后超过 5 秒且速度依然低于底线，主动掐断换新连接
-            if (fetchBytes > 100 * 1024 && speed < speedThreshold) {
-              controller.abort();
-            }
-          }, 3000);
-
-          try {
-            // 拼接随机参数防止 Cloudflare 深度缓存或复用被降速的边缘节点连接
-            const bypassCacheUrl = cfUrl + (cfUrl.includes('?') ? '&' : '?') + `_cf_nocache=${Date.now()}_${index}_${retries}`;
-            const response = await fetch(bypassCacheUrl, {
-              headers: { Range: `bytes=${currentStart}-${end}` },
-              signal: controller.signal
-            });
-
-            // 检查是不是不理踩分块要求，直接把整个文件扔回来 (200 OK)
-            if (response.status === 200) {
-              throw new Error('Server ignored Range header, got 200 OK');
-            }
-            if (!response.ok && response.status !== 206) {
-              throw new Error(`Chunk ${index} failed with ${response.status}`);
-            }
-            if (!response.body) throw new Error('ReadableStream not supported');
-
-            connected = true;
-            const reader = response.body.getReader();
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunkData.push(value);
-              downloadedBytes += value.length;
-              currentStart += value.length;
-              fetchBytes += value.length;
-            }
-
-            activeControllers.delete(controller);
-            clearInterval(speedCheck);
-            break;
-          } catch (e: any) {
-            activeControllers.delete(controller);
-            clearInterval(speedCheck);
-            if (isCancelled) throw new Error('CanceledByUser');
-            retries--;
-            if (e.name === 'AbortError') {
-              // 自适应降级阈值，如果确实网太差，避免无限死循环重试
-              speedThreshold = Math.max(10 * 1024, speedThreshold / 1.5);
-            }
-            if (retries === 0) throw e;
-            // 短暂休眠后重连
-            await new Promise(r => setTimeout(r, 800));
-          }
-        }
-
-        if (currentStart <= end) {
-          throw new Error(`Chunk ${index} failed completely after all retries`);
-        }
-        chunks[index] = new Blob(chunkData as any);
-      };
-
-      const worker = async () => {
-        while (nextChunkIndex < chunksCount) {
-          const index = nextChunkIndex++;
-          await downloadChunk(index);
-        }
-      };
-
-      const workers = [];
-      for (let i = 0; i < PARALLEL_REQUESTS; i++) {
-        workers.push(worker());
-      }
-      await Promise.all(workers);
-
-      clearInterval(progressTimer);
-      setDownloadProgress({ name: fileName, progress: 100, speed: '合并保存中...', downloaded: maxProgressStr, total: maxProgressStr });
-
-      // 纯内存 Blob 合并并下载
-      const finalBlob = new Blob(chunks, { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(finalBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000); // 清理内存
-
-      setAlistMsg(`✅ ${fileName} 下载完成！`);
-    } catch (e) {
-      console.error(e);
-      setAlistMsg(`❌ 多线程下载失败，请重试`);
-    } finally {
-      setDownloadProgress(null);
-    }
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const alistNavigate = (item: any) => {
@@ -326,7 +166,7 @@ export default function Home() {
       const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
       const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun') || alistPath.startsWith('/aliyun_new');
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
-        setAlistDownloadModal({ name: item.name, filePath, size: item.size || 0 });
+        setAlistDownloadModal({ name: item.name, filePath });
       } else if (isAliyun) {
         alistProxyDownload(filePath, item.name);
       } else {
@@ -579,26 +419,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 下载进度条 */}
-      {downloadProgress && (
-        <div className="fixed bottom-6 right-6 bg-black/80 backdrop-blur-md border border-blue-500/30 rounded-2xl p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-5 z-50 w-[300px]">
-          <div className="flex justify-between items-start mb-2">
-            <div className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Downloading...</div>
-            <button onClick={() => cancelWebNDMRef.current?.()} className="bg-red-500/20 hover:bg-red-500/40 text-red-500 text-[10px] px-2 py-0.5 rounded transition-colors whitespace-nowrap">
-              ⏸️ 取消下载
-            </button>
-          </div>
-          <div className="text-xs text-white font-mono truncate mb-3">{downloadProgress.name}</div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
-            <div className="h-full bg-blue-500 transition-all duration-500 ease-out" style={{ width: `${downloadProgress.progress}%` }}></div>
-          </div>
-          <div className="flex justify-between text-[10px] text-zinc-400">
-            <span>{downloadProgress.downloaded} / {downloadProgress.total}</span>
-            <span>{downloadProgress.speed}</span>
-          </div>
-        </div>
-      )}
-
       {/* 大文件下载方式选择弹窗 */}
       {alistDownloadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAlistDownloadModal(null)}>
@@ -611,7 +431,7 @@ export default function Home() {
               <button onClick={() => setAlistDownloadModal(null)} className="text-zinc-600 hover:text-zinc-300 text-lg">✕</button>
             </div>
             <div className="space-y-2">
-              {/* 🔥 服务端代理下载 */}
+              {/* 自动加UA直接下载 */}
               <button
                 onClick={() => {
                   let downloadUrl = `/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`;
@@ -619,16 +439,18 @@ export default function Home() {
                   if (ccConfigStr) {
                     downloadUrl += `&c=${btoa(encodeURIComponent(ccConfigStr))}`;
                   }
-                  window.location.href = downloadUrl;
+                  window.open(downloadUrl, '_blank');
                   setAlistDownloadModal(null);
                 }}
-                className="w-full bg-zinc-900 border border-pink-500/40 rounded-lg px-3 py-2.5 hover:border-pink-400 transition-colors text-left"
+                className="w-full flex items-center justify-between bg-zinc-900 border border-pink-500/40 rounded-lg px-3 py-2.5 hover:border-pink-400 transition-colors text-left"
               >
-                <div className="text-[11px] font-bold text-pink-400">🔥 直接下载（自动加 UA: pan.baidu.com）</div>
-                <div className="text-[10px] text-zinc-500">服务器自动添加 User-Agent 请求头，一键下载</div>
+                <div>
+                  <div className="text-[11px] font-bold text-pink-400">🔥 直接下载（自动加 UA: pan.baidu.com）</div>
+                  <div className="text-[10px] text-zinc-500">服务器自动添加 User-Agent 请求头，一键下载</div>
+                </div>
               </button>
 
-              {/* 🚀 复制直链 */}
+              {/* 复制直链 */}
               <button
                 onClick={() => {
                   fetchAlist({ action: 'get', path: alistDownloadModal.filePath })
@@ -644,90 +466,46 @@ export default function Home() {
                     });
                   setAlistDownloadModal(null);
                 }}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
+                className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
               >
-                <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM）</div>
-                <div className="text-[10px] text-zinc-600">粘贴到下载工具，SVIP 满速</div>
+                <div>
+                  <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM）</div>
+                  <div className="text-[10px] text-zinc-600">粘贴到下载工具，SVIP 满速</div>
+                </div>
               </button>
 
-              {/* ☁️ Cloudflare 边缘加速（多线程黑科技） */}
-              <div className="w-full bg-zinc-900 border border-blue-500/30 rounded-lg overflow-hidden group">
-                <button
-                  onClick={() => {
-                    setAlistDownloadModal(null);
-                    fetchAlist({ action: 'get', path: alistDownloadModal.filePath })
-                      .then(r => r.json())
-                      .then(data => {
-                        if (data.code === 200 && data.data?.raw_url) {
-                          const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                          alistMultithreadDownload(cfUrl, alistDownloadModal.name, alistDownloadModal.size);
-                        } else {
-                          setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
-                        }
-                      }).catch(() => setAlistMsg('❌ 接口异常'));
-                  }}
-                  className="w-full px-3 py-2.5 hover:bg-blue-500/10 transition-colors text-left relative"
-                >
-                  <div className="absolute inset-0 bg-blue-500/10 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500"></div>
-                  <div className="relative">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速多线程（Web NDM）</span>
-                      <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold">黑科技</span>
-                    </div>
-                    <div className="text-[10px] text-zinc-500 mt-1">免安装直接满速下载，适合文件&lt;2GB</div>
-                  </div>
-                </button>
-                <div className="px-3 pb-2.5 pt-1 bg-zinc-900/50 flex items-center justify-between border-t border-zinc-800/50">
-                  <span className="text-[10px] text-zinc-500">下载并发数设置 (1-32):</span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min="1" max="32"
-                      value={threadCount}
-                      onChange={e => setThreadCount(parseInt(e.target.value) || 3)}
-                      className="w-12 bg-black border border-zinc-700 text-xs text-center text-blue-400 py-1 rounded outline-none focus:border-blue-500"
-                    />
-                    <span className="text-[10px] text-zinc-600">线程</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ☁️ Cloudflare 单线程直连 */}
+              {/* Cloudflare Workers 边缘代理 */}
               <button
                 onClick={() => {
-                  const w = window.open('about:blank', '_blank');
                   fetchAlist({ action: 'get', path: alistDownloadModal!.filePath })
                     .then(r => r.json())
                     .then(data => {
                       if (data.code === 200 && data.data?.raw_url) {
                         const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                        if (w) w.location.href = cfUrl;
-                        else window.location.href = cfUrl;
+                        window.open(cfUrl, '_blank');
                       } else {
-                        if (w) w.close();
                         setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
                       }
-                    }).catch(() => {
-                      if (w) w.close();
-                      setAlistMsg('❌ 接口异常');
-                    });
+                    }).catch(() => setAlistMsg('❌ 接口异常'));
                   setAlistDownloadModal(null);
                 }}
-                className="w-full bg-zinc-900 border border-blue-500/10 rounded-lg px-3 py-2.5 hover:border-blue-400/50 transition-colors text-left"
+                className="w-full flex items-center justify-between bg-zinc-900 border border-blue-500/30 rounded-lg px-3 py-2.5 hover:border-blue-400 transition-colors text-left"
               >
                 <div>
-                  <div className="text-[11px] font-bold text-blue-300">☁️ CF 单线程直连下载</div>
-                  <div className="text-[10px] text-zinc-500">原版下载方式，单线程稳定流式传输，适合超大文件</div>
+                  <div className="text-[11px] font-bold text-blue-400">☁️ Cloudflare 边缘加速</div>
+                  <div className="text-[10px] text-zinc-500">CF Worker 注入 UA，全球边缘节点中转，不耗服务器带宽</div>
                 </div>
               </button>
 
               {/* ⚡ 302 直链 */}
               <button
                 onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
+                className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
               >
-                <div className="text-[11px] font-bold text-zinc-400">⚡ 302直链跳转（不加UA）</div>
-                <div className="text-[10px] text-zinc-600">直接跳转百度CDN，大文件可能被拦截</div>
+                <div>
+                  <div className="text-[11px] font-bold text-zinc-400">⚡ 302直链跳转（不加UA）</div>
+                  <div className="text-[10px] text-zinc-600">直接跳转百度CDN，大文件可能被拦截</div>
+                </div>
               </button>
             </div>
           </div>
@@ -818,26 +596,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* 多线程下载进度条 */}
-            {downloadProgress && (
-              <div className="px-4 py-3 border-b border-zinc-800/50 bg-blue-900/10">
-                <div className="flex justify-between text-[11px] mb-1.5 break-all items-end">
-                  <span className="text-blue-400 font-bold pr-2 flex-1">{downloadProgress.name}</span>
-                  <div className="flex flex-col items-end gap-0.5 text-zinc-400 shrink-0 text-right">
-                    <span className="text-pink-400">{downloadProgress.downloaded || '0 MB'} / {downloadProgress.total || '0 MB'}</span>
-                    <span>{downloadProgress.speed} · {downloadProgress.progress}%</span>
-                  </div>
-                </div>
-                <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="bg-blue-500 h-1.5 transition-all duration-300 relative"
-                    style={{ width: `${downloadProgress.progress}%` }}
-                  >
-                    <div className="absolute inset-0 bg-white/30 animate-pulse"></div>
-                  </div>
-                </div>
-              </div>
-            )}
+
             {/* 文件列表 */}
             <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
               {alistLoading ? (
@@ -948,6 +707,6 @@ export default function Home() {
           </div>
         </div>
       </main>
-    </div>
+    </div >
   );
 }
