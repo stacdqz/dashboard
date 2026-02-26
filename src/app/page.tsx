@@ -322,36 +322,67 @@ export default function Home() {
       }, 1000);
 
       const downloadChunk = async (index: number) => {
-        const start = index * chunkSize;
-        const end = Math.min(start + chunkSize - 1, fileSize - 1);
+        const originalStart = index * chunkSize;
+        const end = Math.min(originalStart + chunkSize - 1, fileSize - 1);
 
-        let retries = 3;
-        while (retries > 0) {
+        const chunkData: any[] = [];
+        let currentStart = originalStart;
+
+        let retries = 15;
+        let speedThreshold = 150 * 1024; // 3秒 150KB (要求至少 50KB/s)
+
+        while (currentStart <= end && retries > 0) {
+          const controller = new AbortController();
+          let fetchBytes = 0;
+          let lastCheckBytes = 0;
+          let connected = false;
+
+          const speedCheck = setInterval(() => {
+            if (!connected) return;
+            const speed = fetchBytes - lastCheckBytes;
+            lastCheckBytes = fetchBytes;
+            if (fetchBytes > 512 * 1024 && speed < speedThreshold) {
+              controller.abort();
+            }
+          }, 3000);
+
           try {
             const response = await fetch(cfUrl, {
-              headers: { Range: `bytes=${start}-${end}` }
+              headers: { Range: `bytes=${currentStart}-${end}` },
+              signal: controller.signal
             });
             if (!response.ok && response.status !== 206) throw new Error(`Chunk ${index} failed with ${response.status}`);
             if (!response.body) throw new Error('ReadableStream not supported');
 
+            connected = true;
             const reader = response.body.getReader();
-            const chunkData: any[] = [];
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
               chunkData.push(value);
               downloadedBytes += value.length;
+              currentStart += value.length;
+              fetchBytes += value.length;
             }
 
-            chunks[index] = new Blob(chunkData as any);
-            return;
-          } catch (e) {
+            clearInterval(speedCheck);
+            break;
+          } catch (e: any) {
+            clearInterval(speedCheck);
             retries--;
+            if (e.name === 'AbortError') {
+              speedThreshold = Math.max(10 * 1024, speedThreshold / 1.5);
+            }
             if (retries === 0) throw e;
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 500));
           }
         }
+
+        if (currentStart <= end) {
+          throw new Error(`Chunk ${index} failed after retries`);
+        }
+        chunks[index] = new Blob(chunkData as any);
       };
 
       const worker = async () => {
