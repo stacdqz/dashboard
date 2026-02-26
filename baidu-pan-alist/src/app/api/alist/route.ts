@@ -1,24 +1,25 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminToken } from '../_auth';
 
-const ALIST_URL = (process.env.ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
-const ALIST_USERNAME = process.env.ALIST_USERNAME || '';
-const ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
+const DEFAULT_ALIST_URL = (process.env.ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
+const DEFAULT_ALIST_USERNAME = process.env.ALIST_USERNAME || '';
+const DEFAULT_ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
 
-let cachedToken: string | null = null;
-let tokenExpiry = 0;
+const tokenCache = new Map<string, { token: string; expiry: number }>();
 
-async function getAlistToken(): Promise<string> {
-    if (cachedToken && Date.now() < tokenExpiry) {
-        return cachedToken;
+async function getAlistToken(url: string, user: string, pass: string): Promise<string> {
+    const cacheKey = `${url}|${user}|${pass}`;
+    const cached = tokenCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) {
+        return cached.token;
     }
 
-    const res = await fetch(`${ALIST_URL}/api/auth/login`, {
+    const res = await fetch(`${url}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            username: ALIST_USERNAME,
-            password: ALIST_PASSWORD,
+            username: user,
+            password: pass,
         }),
     });
 
@@ -27,14 +28,14 @@ async function getAlistToken(): Promise<string> {
         throw new Error(data.message || 'AList 登录失败');
     }
 
-    cachedToken = data.data.token;
-    tokenExpiry = Date.now() + 47 * 60 * 60 * 1000;
-    return cachedToken!;
+    const newToken = data.data.token;
+    tokenCache.set(cacheKey, { token: newToken, expiry: Date.now() + 47 * 60 * 60 * 1000 });
+    return newToken;
 }
 
-async function alistFetch(endpoint: string, body: any) {
-    const token = await getAlistToken();
-    const res = await fetch(`${ALIST_URL}${endpoint}`, {
+async function alistFetch(endpoint: string, body: any, config: { url: string; user: string; pass: string }) {
+    const token = await getAlistToken(config.url, config.user, config.pass);
+    const res = await fetch(`${config.url}${endpoint}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -55,6 +56,16 @@ export async function POST(request: Request) {
             names?: string[];
             newName?: string;
             dir_name?: string;
+        };
+
+        const customUrl = request.headers.get('x-alist-url');
+        const customUser = request.headers.get('x-alist-username');
+        const customPass = request.headers.get('x-alist-password');
+
+        const config = {
+            url: customUrl ? customUrl.replace(/\/+$/, '') : DEFAULT_ALIST_URL,
+            user: customUser || DEFAULT_ALIST_USERNAME,
+            pass: customPass || DEFAULT_ALIST_PASSWORD,
         };
 
         if (!action) {
@@ -78,33 +89,33 @@ export async function POST(request: Request) {
                     page: 1,
                     per_page: 0,
                     refresh: false,
-                });
+                }, config);
                 break;
 
             case 'get':
                 result = await alistFetch('/api/fs/get', {
                     path: path || '/',
-                });
+                }, config);
                 break;
 
             case 'mkdir':
                 result = await alistFetch('/api/fs/mkdir', {
                     path: `${(path || '/').replace(/\/+$/, '')}/${dir_name}`,
-                });
+                }, config);
                 break;
 
             case 'remove':
                 result = await alistFetch('/api/fs/remove', {
                     dir: path || '/',
                     names: names || (name ? [name] : []),
-                });
+                }, config);
                 break;
 
             case 'rename':
                 result = await alistFetch('/api/fs/rename', {
                     path: path || '/',
                     name: (newName || '').trim(),
-                });
+                }, config);
                 break;
 
             default:

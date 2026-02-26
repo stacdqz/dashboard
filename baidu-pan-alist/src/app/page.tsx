@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 
-const ALIST_BASE = (process.env.NEXT_PUBLIC_ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
+const ALIST_BASE_DEFAULT = (process.env.NEXT_PUBLIC_ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
 const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
 export default function Home() {
@@ -28,6 +28,46 @@ export default function Home() {
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string } | null>(null);
+
+  // === 远端 AList 设置（仅本地生效） ===
+  const [showSettings, setShowSettings] = useState(false);
+  const [customUrl, setCustomUrl] = useState('');
+  const [customUser, setCustomUser] = useState('');
+  const [customPass, setCustomPass] = useState('');
+
+  const getCustomConfig = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const str = localStorage.getItem('ALIST_CUSTOM_CONFIG');
+        if (str) return JSON.parse(str);
+      } catch (e) { }
+    }
+    return null;
+  };
+
+  const getAlistBase = () => {
+    const cc = getCustomConfig();
+    if (cc && cc.url) return cc.url.replace(/\/+$/, '');
+    return ALIST_BASE_DEFAULT;
+  };
+
+  const fetchAlist = async (body: any, customHeaders: Record<string, string> = {}) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...customHeaders };
+    if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
+
+    const cc = getCustomConfig();
+    if (cc) {
+      if (cc.url) headers['x-alist-url'] = cc.url;
+      if (cc.user) headers['x-alist-username'] = cc.user;
+      if (cc.pass) headers['x-alist-password'] = cc.pass;
+    }
+
+    return fetch('/api/alist', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -77,11 +117,7 @@ export default function Home() {
     setAlistLoading(true);
     setAlistError(null);
     try {
-      const res = await fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list', path }),
-      });
+      const res = await fetchAlist({ action: 'list', path });
       const data = await res.json();
       if (data.code === 200) {
         setAlistFiles(data.data?.content || []);
@@ -95,21 +131,23 @@ export default function Home() {
   };
   // === 下载逻辑（与 my-terminal 完全一致）===
   const alistDirectDownload = (filePath: string, _fileName: string) => {
-    fetch('/api/alist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get', path: filePath }),
-    }).then(r => r.json()).then(data => {
-      const sign = data.code === 200 ? (data.data?.sign || '') : '';
-      const url = sign ? `${ALIST_BASE}/d${filePath}?sign=${sign}` : `${ALIST_BASE}/d${filePath}`;
-      window.open(url, '_blank');
-    }).catch(() => {
-      window.open(`${ALIST_BASE}/d${filePath}`, '_blank');
-    });
+    fetchAlist({ action: 'get', path: filePath })
+      .then(r => r.json())
+      .then(data => {
+        const sign = data.code === 200 ? (data.data?.sign || '') : '';
+        const url = sign ? `${getAlistBase()}/d${filePath}?sign=${sign}` : `${getAlistBase()}/d${filePath}`;
+        window.open(url, '_blank');
+      }).catch(() => {
+        window.open(`${getAlistBase()}/d${filePath}`, '_blank');
+      });
   };
 
   const alistProxyDownload = (filePath: string, fileName: string) => {
-    const downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+    let downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+    const ccConfigStr = localStorage.getItem('ALIST_CUSTOM_CONFIG');
+    if (ccConfigStr) {
+      downloadUrl += `&c=${btoa(encodeURIComponent(ccConfigStr))}`;
+    }
     const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = fileName;
@@ -269,11 +307,7 @@ export default function Home() {
     if (!alistMkdirName.trim()) return;
     setAlistMsg(null);
     try {
-      const res = await fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ action: 'mkdir', path: alistPath, dir_name: alistMkdirName.trim() }),
-      });
+      const res = await fetchAlist({ action: 'mkdir', path: alistPath, dir_name: alistMkdirName.trim() });
       const data = await res.json();
       if (data.code === 200) { setAlistMsg('✅ 文件夹创建成功'); setAlistMkdirName(''); setAlistShowMkdir(false); alistListDir(alistPath); }
       else setAlistMsg(`❌ ${data.message}`);
@@ -284,11 +318,7 @@ export default function Home() {
     if (!confirm(`确认删除 ${name} 吗？`)) return;
     setAlistMsg(null);
     try {
-      const res = await fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ action: 'remove', path: alistPath, names: [name] }),
-      });
+      const res = await fetchAlist({ action: 'remove', path: alistPath, names: [name] });
       const data = await res.json();
       if (data.code === 200) { setAlistMsg('✅ 删除成功'); alistListDir(alistPath); }
       else setAlistMsg(`❌ ${data.message}`);
@@ -299,11 +329,7 @@ export default function Home() {
     if (!alistNewName.trim()) return;
     setAlistMsg(null);
     try {
-      const res = await fetch('/api/alist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ action: 'rename', path: filePath, newName: alistNewName.trim() }),
-      });
+      const res = await fetchAlist({ action: 'rename', path: filePath, newName: alistNewName.trim() });
       const data = await res.json();
       if (data.code === 200) { setAlistMsg('✅ 重命名成功'); setAlistRenaming(null); setAlistNewName(''); alistListDir(alistPath); }
       else setAlistMsg(`❌ ${data.message}`);
@@ -322,7 +348,7 @@ export default function Home() {
       if (!tokenRes.ok) throw new Error('Cannot get AList token');
       const { token: alistToken } = await tokenRes.json();
       const uploadPath = alistPath.replace(/\/+$/, '') + '/' + alistUploadFile.name;
-      const uploadRes = await fetch(`${ALIST_BASE}/api/fs/put`, {
+      const uploadRes = await fetch(`${getAlistBase()}/api/fs/put`, {
         method: 'PUT',
         headers: {
           'Authorization': alistToken,
@@ -406,10 +432,90 @@ export default function Home() {
           <span className="opacity-30">|</span>
           <span className="text-emerald-500 hidden sm:inline">ONLINE</span>
         </div>
-        <button onClick={handleLogout} className="text-[10px] text-zinc-500 hover:text-pink-400 transition-colors tracking-widest">
-          LOGOUT
-        </button>
+        <div className="flex items-center gap-3">
+          {adminToken && (
+            <button
+              onClick={() => {
+                const cc = getCustomConfig();
+                if (cc) {
+                  setCustomUrl(cc.url || '');
+                  setCustomUser(cc.user || '');
+                  setCustomPass(cc.pass || '');
+                }
+                setShowSettings(true);
+              }}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors tracking-widest flex items-center gap-1"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              设置
+            </button>
+          )}
+          <button onClick={handleLogout} className="text-[10px] text-zinc-500 hover:text-pink-400 transition-colors tracking-widest">
+            LOGOUT
+          </button>
+        </div>
       </header>
+
+      {/* 设置弹窗 */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+          <div className="w-full max-w-sm bg-[#0c0c0e] border border-zinc-700 rounded-2xl p-4 shadow-2xl mx-4 animate-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-[12px] text-white font-bold">⚙️ AList 服务端设置</div>
+                <div className="text-[10px] text-zinc-500 mt-0.5">仅在您当前浏览器有效，覆盖系统默认配置</div>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="text-zinc-600 hover:text-zinc-300 text-lg">✕</button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] text-zinc-400 mb-1 block">AList_URL [必须项]</label>
+                <input type="text" value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="如: http://47.108.222.119:5244" className="w-full bg-black border border-zinc-800 rounded px-2.5 py-2 text-[11px] text-white outline-none focus:border-pink-500" />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-400 mb-1 block">AList_Username [用于后台/直链获取]</label>
+                <input type="text" value={customUser} onChange={e => setCustomUser(e.target.value)} placeholder="可留空使用默认" className="w-full bg-black border border-zinc-800 rounded px-2.5 py-2 text-[11px] text-white outline-none focus:border-pink-500" />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-400 mb-1 block">AList_Password</label>
+                <input type="password" value={customPass} onChange={e => setCustomPass(e.target.value)} placeholder="可留空使用默认" className="w-full bg-black border border-zinc-800 rounded px-2.5 py-2 text-[11px] text-white outline-none focus:border-pink-500" />
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => {
+                  if (customUrl) {
+                    localStorage.setItem('ALIST_CUSTOM_CONFIG', JSON.stringify({ url: customUrl, user: customUser, pass: customPass }));
+                    setAlistMsg('✅ 本地自定义配置已保存并生效');
+                  } else {
+                    localStorage.removeItem('ALIST_CUSTOM_CONFIG');
+                    setAlistMsg('✅ 已恢复默认后端配置');
+                  }
+                  setShowSettings(false);
+                  alistListDir('/'); // 重新加载根目录
+                }}
+                className="flex-1 bg-pink-500 text-white text-[11px] font-bold py-2 rounded shadow hover:bg-pink-400"
+              >
+                保存配置
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('ALIST_CUSTOM_CONFIG');
+                  setCustomUrl(''); setCustomUser(''); setCustomPass('');
+                  setAlistMsg('✅ 已恢复默认配置');
+                  setShowSettings(false);
+                  alistListDir('/');
+                }}
+                className="px-3 bg-zinc-800 text-zinc-300 text-[11px] py-2 rounded hover:bg-zinc-700"
+              >
+                恢复默认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 大文件下载方式选择弹窗 */}
       {alistDownloadModal && (
@@ -426,7 +532,12 @@ export default function Home() {
               {/* 🔥 服务端代理下载 */}
               <button
                 onClick={() => {
-                  window.open(`/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`, '_blank');
+                  let downloadUrl = `/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`;
+                  const ccConfigStr = localStorage.getItem('ALIST_CUSTOM_CONFIG');
+                  if (ccConfigStr) {
+                    downloadUrl += `&c=${btoa(encodeURIComponent(ccConfigStr))}`;
+                  }
+                  window.open(downloadUrl, '_blank');
                   setAlistDownloadModal(null);
                 }}
                 className="w-full bg-zinc-900 border border-pink-500/40 rounded-lg px-3 py-2.5 hover:border-pink-400 transition-colors text-left"
@@ -438,19 +549,17 @@ export default function Home() {
               {/* 🚀 复制直链 */}
               <button
                 onClick={() => {
-                  fetch('/api/alist', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
-                  }).then(r => r.json()).then(data => {
-                    const sign = data.code === 200 ? (data.data?.sign || '') : '';
-                    const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
-                    navigator.clipboard.writeText(url);
-                    setAlistMsg('✅ 直链已复制！粘贴到迅雷/IDM即可满速下载');
-                  }).catch(() => {
-                    navigator.clipboard.writeText(`${ALIST_BASE}/d${alistDownloadModal!.filePath}`);
-                    setAlistMsg('✅ 链接已复制');
-                  });
+                  fetchAlist({ action: 'get', path: alistDownloadModal.filePath })
+                    .then(r => r.json())
+                    .then(data => {
+                      const sign = data.code === 200 ? (data.data?.sign || '') : '';
+                      const url = sign ? `${getAlistBase()}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${getAlistBase()}/d${alistDownloadModal!.filePath}`;
+                      navigator.clipboard.writeText(url);
+                      setAlistMsg('✅ 直链已复制！粘贴到迅雷/IDM即可满速下载');
+                    }).catch(() => {
+                      navigator.clipboard.writeText(`${getAlistBase()}/d${alistDownloadModal!.filePath}`);
+                      setAlistMsg('✅ 链接已复制');
+                    });
                   setAlistDownloadModal(null);
                 }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
@@ -463,19 +572,17 @@ export default function Home() {
               <button
                 onClick={() => {
                   setAlistDownloadModal(null);
-                  fetch('/api/alist', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
-                  }).then(r => r.json()).then(data => {
-                    if (data.code === 200 && data.data?.raw_url) {
-                      const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                      // 启动网页版 NDM 多线程下载！
-                      alistMultithreadDownload(cfUrl, alistDownloadModal.name, alistDownloadModal.size);
-                    } else {
-                      setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
-                    }
-                  }).catch(() => setAlistMsg('❌ 接口异常'));
+                  fetchAlist({ action: 'get', path: alistDownloadModal.filePath })
+                    .then(r => r.json())
+                    .then(data => {
+                      if (data.code === 200 && data.data?.raw_url) {
+                        const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
+                        // 启动网页版 NDM 多线程下载！
+                        alistMultithreadDownload(cfUrl, alistDownloadModal.name, alistDownloadModal.size);
+                      } else {
+                        setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                      }
+                    }).catch(() => setAlistMsg('❌ 接口异常'));
                 }}
                 className="w-full bg-zinc-900 border border-blue-500/30 rounded-lg px-3 py-2.5 hover:border-blue-400 transition-colors text-left relative overflow-hidden group"
               >
@@ -493,23 +600,21 @@ export default function Home() {
               <button
                 onClick={() => {
                   const w = window.open('about:blank', '_blank');
-                  fetch('/api/alist', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'get', path: alistDownloadModal!.filePath }),
-                  }).then(r => r.json()).then(data => {
-                    if (data.code === 200 && data.data?.raw_url) {
-                      const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                      if (w) w.location.href = cfUrl;
-                      else window.location.href = cfUrl;
-                    } else {
+                  fetchAlist({ action: 'get', path: alistDownloadModal!.filePath })
+                    .then(r => r.json())
+                    .then(data => {
+                      if (data.code === 200 && data.data?.raw_url) {
+                        const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
+                        if (w) w.location.href = cfUrl;
+                        else window.location.href = cfUrl;
+                      } else {
+                        if (w) w.close();
+                        setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                      }
+                    }).catch(() => {
                       if (w) w.close();
-                      setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
-                    }
-                  }).catch(() => {
-                    if (w) w.close();
-                    setAlistMsg('❌ 接口异常');
-                  });
+                      setAlistMsg('❌ 接口异常');
+                    });
                   setAlistDownloadModal(null);
                 }}
                 className="w-full bg-zinc-900 border border-blue-500/10 rounded-lg px-3 py-2.5 hover:border-blue-400/50 transition-colors text-left"
@@ -736,7 +841,7 @@ export default function Home() {
                   </button>
                 )}
               </div>
-              <button onClick={() => window.open(ALIST_BASE, '_blank')} className="hover:text-pink-400 transition-colors">
+              <button onClick={() => window.open(getAlistBase(), '_blank')} className="hover:text-pink-400 transition-colors">
                 在 AList 中打开 ↗
               </button>
             </div>

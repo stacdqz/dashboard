@@ -1,40 +1,57 @@
 import { NextResponse } from 'next/server';
 
-const ALIST_URL = (process.env.ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
-const ALIST_USERNAME = process.env.ALIST_USERNAME || '';
-const ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
+const DEFAULT_ALIST_URL = (process.env.ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
+const DEFAULT_ALIST_USERNAME = process.env.ALIST_USERNAME || '';
+const DEFAULT_ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
 
-let cachedToken: string | null = null;
-let tokenExpiry = 0;
+const tokenCache = new Map<string, { token: string; expiry: number }>();
 
-async function getAlistToken(): Promise<string> {
-    if (cachedToken && Date.now() < tokenExpiry) return cachedToken!;
-    const res = await fetch(`${ALIST_URL}/api/auth/login`, {
+async function getAlistToken(url: string, user: string, pass: string): Promise<string> {
+    const cacheKey = `${url}|${user}|${pass}`;
+    const cached = tokenCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) return cached.token;
+
+    const res = await fetch(`${url}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: ALIST_USERNAME, password: ALIST_PASSWORD }),
+        body: JSON.stringify({ username: user, password: pass }),
     });
     const data = await res.json();
     if (data.code !== 200 || !data.data?.token) throw new Error(data.message || 'AList 登录失败');
-    cachedToken = data.data.token;
-    tokenExpiry = Date.now() + 47 * 60 * 60 * 1000;
-    return cachedToken!;
+
+    const newToken = data.data.token;
+    tokenCache.set(cacheKey, { token: newToken, expiry: Date.now() + 47 * 60 * 60 * 1000 });
+    return newToken;
 }
 
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const path = searchParams.get('path');
+        const configB64 = searchParams.get('c'); // Custom config encoded
         if (!path) {
             return NextResponse.json({ error: '缺少 path 参数' }, { status: 400 });
         }
 
-        const token = await getAlistToken();
+        let customConfig: any = null;
+        if (configB64) {
+            try {
+                customConfig = JSON.parse(Buffer.from(configB64, 'base64').toString('utf8'));
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        const url = customConfig?.url ? customConfig.url.replace(/\/+$/, '') : DEFAULT_ALIST_URL;
+        const user = customConfig?.user || DEFAULT_ALIST_USERNAME;
+        const pass = customConfig?.pass || DEFAULT_ALIST_PASSWORD;
+
+        const token = await getAlistToken(url, user, pass);
         const filename = path.split('/').pop() || 'download';
         const rangeHeader = request.headers.get('range');
 
         // 获取文件信息，判断存储类型
-        const getRes = await fetch(`${ALIST_URL}/api/fs/get`, {
+        const getRes = await fetch(`${url}/api/fs/get`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -72,8 +89,8 @@ export async function GET(request: Request) {
 
             const sign = getData.data?.sign || '';
             const proxyUrl = sign
-                ? `${ALIST_URL}/p${path}?sign=${sign}`
-                : `${ALIST_URL}/p${path}`;
+                ? `${url}/p${path}?sign=${sign}`
+                : `${url}/p${path}`;
 
             fileRes = await fetch(proxyUrl, { headers: proxyHeaders });
         }
