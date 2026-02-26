@@ -29,8 +29,11 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: '缺少 path 参数' }, { status: 400 });
         }
 
-        // 1. 从 AList 获取文件的 raw_url（真实的百度CDN直链）
         const token = await getAlistToken();
+        const filename = path.split('/').pop() || 'download';
+        const rangeHeader = request.headers.get('range');
+
+        // 获取文件信息，判断存储类型
         const getRes = await fetch(`${ALIST_URL}/api/fs/get`, {
             method: 'POST',
             headers: {
@@ -41,35 +44,52 @@ export async function GET(request: Request) {
         });
         const getData = await getRes.json();
 
-        if (getData.code !== 200 || !getData.data?.raw_url) {
+        if (getData.code !== 200) {
             return NextResponse.json(
-                { error: getData.message || '获取文件直链失败' },
+                { error: getData.message || '获取文件信息失败' },
                 { status: 500 }
             );
         }
 
-        const rawUrl = getData.data.raw_url;
-        const filename = path.split('/').pop() || 'download';
+        const rawUrl = getData.data?.raw_url;
+        const isBaidu = rawUrl && (rawUrl.includes('baidupcs.com') || rawUrl.includes('baidu.com'));
 
-        // 2. 根据存储后端设置合适的请求头
-        const rangeHeader = request.headers.get('range');
-        const fetchHeaders: Record<string, string> = {};
-        // 只对百度 CDN 链接设置 pan.baidu.com UA
-        if (rawUrl.includes('baidupcs.com') || rawUrl.includes('baidu.com')) {
-            fetchHeaders['User-Agent'] = 'pan.baidu.com';
+        let fileRes: Response;
+
+        if (isBaidu && rawUrl) {
+            // 百度网盘：用 raw_url + UA: pan.baidu.com
+            const fetchHeaders: Record<string, string> = {
+                'User-Agent': 'pan.baidu.com',
+            };
+            if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
+            fileRes = await fetch(rawUrl, { headers: fetchHeaders });
+        } else {
+            // 阿里云盘、其他存储：通过 AList 的 /p/ 代理模式
+            // AList 自己处理签名头，不会出错
+            const proxyHeaders: Record<string, string> = {
+                'Authorization': token,
+            };
+            if (rangeHeader) proxyHeaders['Range'] = rangeHeader;
+
+            // 先获取 sign
+            const sign = getData.data?.sign || '';
+            const proxyUrl = sign
+                ? `${ALIST_URL}/p${path}?sign=${sign}`
+                : `${ALIST_URL}/p${path}`;
+
+            fileRes = await fetch(proxyUrl, { headers: proxyHeaders });
         }
-        if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
-
-        const fileRes = await fetch(rawUrl, { headers: fetchHeaders });
 
         if (!fileRes.ok && fileRes.status !== 206) {
-            return NextResponse.json(
-                { error: `百度CDN返回错误: ${fileRes.status}` },
-                { status: fileRes.status }
+            // 返回有意义的错误页面而不是 JSON（防止下载成 .json）
+            const errText = await fileRes.text().catch(() => '');
+            return new Response(
+                `下载失败 (${fileRes.status}): ${errText.substring(0, 200)}`,
+                { status: fileRes.status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
             );
         }
 
-        // 3. 将响应流式传回给前端（支持断点续传）
+        // 将响应流式传回给前端（支持断点续传）
         const responseHeaders = new Headers();
         responseHeaders.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
 
@@ -93,9 +113,9 @@ export async function GET(request: Request) {
 
     } catch (e: any) {
         console.error('[alist-download] error:', e);
-        return NextResponse.json(
-            { error: e?.message || '下载代理出错喵...' },
-            { status: 500 }
+        return new Response(
+            `下载代理出错: ${e?.message || '未知错误'}`,
+            { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
         );
     }
 }
