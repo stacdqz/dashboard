@@ -55,6 +55,7 @@ export default function Home() {
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string, downloaded?: string, total?: string } | null>(null);
+  const [threadCount, setThreadCount] = useState<number>(3); // 默认3线程
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -315,7 +316,7 @@ export default function Home() {
       let lastTime = Date.now();
       let lastBytes = 0;
       let nextChunkIndex = 0;
-      const PARALLEL_REQUESTS = 3; // 下调为3并发以防 CF 握手超时和截断
+      const PARALLEL_REQUESTS = threadCount > 0 && threadCount <= 32 ? threadCount : 3;
       let writeMutex = Promise.resolve();
 
       const progressTimer = setInterval(() => {
@@ -1210,34 +1211,48 @@ export default function Home() {
                       </button>
 
                       {/* ☁️ Cloudflare 边缘加速（多线程黑科技） */}
-                      <button
-                        onClick={() => {
-                          setAlistDownloadModal(null);
-                          fetch('/api/alist', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
-                          }).then(r => r.json()).then(data => {
-                            if (data.code === 200 && data.data?.raw_url) {
-                              const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                              // 启动网页版 NDM 多线程下载！
-                              alistMultithreadDownload(cfUrl, alistDownloadModal.name, alistDownloadModal.size);
-                            } else {
-                              setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
-                            }
-                          }).catch(() => setAlistMsg('❌ 接口异常'));
-                        }}
-                        className="w-full bg-zinc-900 border border-blue-500/30 rounded-lg px-3 py-2.5 hover:border-blue-400 transition-colors text-left relative overflow-hidden group"
-                      >
-                        <div className="absolute inset-0 bg-blue-500/10 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500"></div>
-                        <div className="relative">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速多线程（Web NDM）</span>
-                            <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold">黑科技</span>
+                      <div className="w-full bg-zinc-900 border border-blue-500/30 rounded-lg overflow-hidden group">
+                        <button
+                          onClick={() => {
+                            setAlistDownloadModal(null);
+                            fetch('/api/alist', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
+                            }).then(r => r.json()).then(data => {
+                              if (data.code === 200 && data.data?.raw_url) {
+                                const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
+                                alistMultithreadDownload(cfUrl, alistDownloadModal.name, alistDownloadModal.size);
+                              } else {
+                                setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                              }
+                            }).catch(() => setAlistMsg('❌ 接口异常'));
+                          }}
+                          className="w-full px-3 py-2.5 hover:bg-blue-500/10 transition-colors text-left relative"
+                        >
+                          <div className="absolute inset-0 bg-blue-500/10 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500"></div>
+                          <div className="relative">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速流式多线程（Web NDM）</span>
+                              <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold">黑科技</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 mt-1">突破单线程限速，边下边存不爆内存</div>
                           </div>
-                          <div className="text-[10px] text-zinc-500 mt-1">免安装浏览器直接 8 线程下载，突破单线程限速，适合文件&lt;2GB</div>
+                        </button>
+                        <div className="px-3 pb-2.5 pt-1 bg-zinc-900/50 flex items-center justify-between border-t border-zinc-800/50">
+                          <span className="text-[10px] text-zinc-500">下载并发数设置 (1-32):</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="1" max="32"
+                              value={threadCount}
+                              onChange={e => setThreadCount(parseInt(e.target.value) || 3)}
+                              className="w-12 bg-black border border-zinc-700 text-xs text-center text-blue-400 py-1 rounded outline-none focus:border-blue-500"
+                            />
+                            <span className="text-[10px] text-zinc-600">线程</span>
+                          </div>
                         </div>
-                      </button>
+                      </div>
 
                       {/* ☁️ Cloudflare 单线程直连 */}
                       <button
