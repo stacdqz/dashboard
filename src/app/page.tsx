@@ -1064,6 +1064,8 @@ export default function Home() {
                       {/* Cloudflare Workers 边缘代理 */}
                       <button
                         onClick={() => {
+                          // 先同步打开窗口（避免手机端拦截异步 window.open）
+                          const w = window.open('about:blank', '_blank');
                           fetch('/api/alist', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -1071,11 +1073,14 @@ export default function Home() {
                           }).then(r => r.json()).then(data => {
                             if (data.code === 200 && data.data?.raw_url) {
                               const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
-                              window.open(cfUrl, '_blank');
+                              if (w) w.location.href = cfUrl;
+                              else window.location.href = cfUrl;
                             } else {
+                              if (w) w.close();
                               setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
                             }
                           }).catch(() => {
+                            if (w) w.close();
                             setAlistMsg('❌ 接口异常');
                           });
                           setAlistDownloadModal(null);
