@@ -323,13 +323,12 @@ export default function Home() {
 
       const downloadChunk = async (index: number) => {
         const originalStart = index * chunkSize;
-        const end = Math.min(originalStart + chunkSize - 1, fileSize - 1);
-
-        const chunkData: any[] = [];
         let currentStart = originalStart;
+        const end = Math.min(originalStart + chunkSize - 1, fileSize - 1);
+        const chunkData: any[] = [];
 
         let retries = 15;
-        let speedThreshold = 150 * 1024; // 3秒 150KB (要求至少 50KB/s)
+        let speedThreshold = 80 * 1024; // 3秒 80KB 的底线要求
 
         while (currentStart <= end && retries > 0) {
           const controller = new AbortController();
@@ -341,17 +340,27 @@ export default function Home() {
             if (!connected) return;
             const speed = fetchBytes - lastCheckBytes;
             lastCheckBytes = fetchBytes;
-            if (fetchBytes > 512 * 1024 && speed < speedThreshold) {
+            // 如果连接建立后超过 5 秒且速度依然低于底线，主动掐断换新连接
+            if (fetchBytes > 100 * 1024 && speed < speedThreshold) {
               controller.abort();
             }
           }, 3000);
 
           try {
-            const response = await fetch(cfUrl, {
+            // 拼接随机参数防止 Cloudflare 深度缓存或复用被降速的边缘节点连接
+            const bypassCacheUrl = cfUrl + (cfUrl.includes('?') ? '&' : '?') + `_cf_nocache=${Date.now()}_${index}_${retries}`;
+            const response = await fetch(bypassCacheUrl, {
               headers: { Range: `bytes=${currentStart}-${end}` },
               signal: controller.signal
             });
-            if (!response.ok && response.status !== 206) throw new Error(`Chunk ${index} failed with ${response.status}`);
+
+            // 检查是不是不理踩分块要求，直接把整个文件扔回来 (200 OK)
+            if (response.status === 200) {
+              throw new Error('Server ignored Range header, got 200 OK');
+            }
+            if (!response.ok && response.status !== 206) {
+              throw new Error(`Chunk ${index} failed with ${response.status}`);
+            }
             if (!response.body) throw new Error('ReadableStream not supported');
 
             connected = true;
@@ -372,15 +381,17 @@ export default function Home() {
             clearInterval(speedCheck);
             retries--;
             if (e.name === 'AbortError') {
+              // 自适应降级阈值，如果确实网太差，避免无限死循环重试
               speedThreshold = Math.max(10 * 1024, speedThreshold / 1.5);
             }
             if (retries === 0) throw e;
-            await new Promise(r => setTimeout(r, 500));
+            // 短暂休眠后重连
+            await new Promise(r => setTimeout(r, 800));
           }
         }
 
         if (currentStart <= end) {
-          throw new Error(`Chunk ${index} failed after retries`);
+          throw new Error(`Chunk ${index} failed completely after all retries`);
         }
         chunks[index] = new Blob(chunkData as any);
       };
