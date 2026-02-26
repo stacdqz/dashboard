@@ -27,7 +27,7 @@ export default function Home() {
   const [alistUploading, setAlistUploading] = useState(false);
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
-  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string } | null>(null);
+  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string; sign?: string } | null>(null);
 
   // === 远端 AList 设置（仅本地生效） ===
   const [showSettings, setShowSettings] = useState(false);
@@ -130,16 +130,9 @@ export default function Home() {
     finally { setAlistLoading(false); }
   };
   // === 下载逻辑 ===
-  const alistDirectDownload = (filePath: string, fileName: string) => {
-    fetchAlist({ action: 'get', path: filePath })
-      .then(r => r.json())
-      .then(data => {
-        const sign = data.code === 200 ? (data.data?.sign || '') : '';
-        const url = sign ? `${getAlistBase()}/d${filePath}?sign=${sign}` : `${getAlistBase()}/d${filePath}`;
-        window.open(url, '_blank');
-      }).catch(() => {
-        window.open(`${getAlistBase()}/d${filePath}`, '_blank');
-      });
+  const alistDirectDownload = (filePath: string, fileSign?: string) => {
+    const url = fileSign ? `${getAlistBase()}/d${filePath}?sign=${fileSign}` : `${getAlistBase()}/d${filePath}`;
+    window.open(url, '_blank');
   };
 
   const alistProxyDownload = (filePath: string, fileName: string) => {
@@ -166,11 +159,11 @@ export default function Home() {
       const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
       const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun') || alistPath.startsWith('/aliyun_new');
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
-        setAlistDownloadModal({ name: item.name, filePath });
+        setAlistDownloadModal({ name: item.name, filePath, sign: item.sign });
       } else if (isAliyun) {
         alistProxyDownload(filePath, item.name);
       } else {
-        alistDirectDownload(filePath, item.name);
+        alistDirectDownload(filePath, item.sign);
       }
     }
   };
@@ -184,7 +177,7 @@ export default function Home() {
       if (isAliyun || (isBaidu && file && (file.size || 0) >= SIZE_THRESHOLD)) {
         alistProxyDownload(filePath, name);
       } else {
-        alistDirectDownload(filePath, name);
+        alistDirectDownload(filePath, file?.sign);
       }
     });
     setAlistSelected(new Set());
@@ -499,7 +492,7 @@ export default function Home() {
 
               {/* ⚡ 302 直链 */}
               <button
-                onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
+                onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.sign); setAlistDownloadModal(null); }}
                 className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
               >
                 <div>

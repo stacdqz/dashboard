@@ -53,7 +53,7 @@ export default function Home() {
   const [alistMsg, setAlistMsg] = useState<string | null>(null);
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
-  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string } | null>(null);
+  const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string; sign?: string } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -255,8 +255,9 @@ export default function Home() {
   const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
   // 小文件直接走 AList /d/ 302重定向（最快）
-  const alistDirectDownload = (filePath: string, fileName: string) => {
-    window.location.href = `${ALIST_BASE}/d${filePath}`;
+  const alistDirectDownload = (filePath: string, fileSign?: string) => {
+    const url = fileSign ? `${ALIST_BASE}/d${filePath}?sign=${fileSign}` : `${ALIST_BASE}/d${filePath}`;
+    window.open(url, '_blank');
   };
 
   // 服务端代理下载
@@ -281,13 +282,13 @@ export default function Home() {
 
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
         // 百度大文件(≥20MB)：弹出下载方式选择
-        setAlistDownloadModal({ name: item.name, filePath });
+        setAlistDownloadModal({ name: item.name, filePath, sign: item.sign });
       } else if (isAliyun) {
         // 阿里云盘：签名URL不支持浏览器直跳，走代理
         alistProxyDownload(filePath, item.name);
       } else {
         // 百度小文件、123网盘等：直链下载
-        alistDirectDownload(filePath, item.name);
+        alistDirectDownload(filePath, item.sign);
       }
     }
   };
@@ -301,7 +302,7 @@ export default function Home() {
       if (isAliyun || (isBaidu && file && (file.size || 0) >= SIZE_THRESHOLD)) {
         alistProxyDownload(filePath, name);
       } else {
-        alistDirectDownload(filePath, name);
+        alistDirectDownload(filePath, file?.sign);
       }
     });
     setAlistSelected(new Set());
@@ -1078,7 +1079,7 @@ export default function Home() {
 
                       {/* ⚡ 302 直链 */}
                       <button
-                        onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.name); setAlistDownloadModal(null); }}
+                        onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.sign); setAlistDownloadModal(null); }}
                         className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
                       >
                         <div>
