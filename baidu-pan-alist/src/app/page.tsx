@@ -27,7 +27,7 @@ export default function Home() {
   const [alistRenaming, setAlistRenaming] = useState<string | null>(null);
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string, downloaded?: string, total?: string } | null>(null);
 
   // === 远端 AList 设置（仅本地生效） ===
   const [showSettings, setShowSettings] = useState(false);
@@ -136,9 +136,9 @@ export default function Home() {
       .then(data => {
         const sign = data.code === 200 ? (data.data?.sign || '') : '';
         const url = sign ? `${getAlistBase()}/d${filePath}?sign=${sign}` : `${getAlistBase()}/d${filePath}`;
-        window.open(url, '_blank');
+        window.location.href = url; // 移动端直接跳转，防止 popup 被拦截
       }).catch(() => {
-        window.open(`${getAlistBase()}/d${filePath}`, '_blank');
+        window.location.href = `${getAlistBase()}/d${filePath}`;
       });
   };
 
@@ -148,38 +148,68 @@ export default function Home() {
     if (ccConfigStr) {
       downloadUrl += `&c=${btoa(encodeURIComponent(ccConfigStr))}`;
     }
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    window.location.href = downloadUrl; // 移动端直接跳转，后台会返回 attachment 头
   };
 
   const alistMultithreadDownload = async (cfUrl: string, fileName: string, fileSize: number) => {
     try {
       if (!fileSize) {
-        // 如果无法获取大小，走普通的流式下载
-        window.open(cfUrl, '_blank');
-        return;
-      }
-      if (fileSize > 2 * 1024 * 1024 * 1024) {
-        setAlistMsg('❌ 文件超过2GB，可能导致浏览器内存不足崩溃，请改用“复制直链”');
+        window.location.href = cfUrl;
         return;
       }
 
-      setDownloadProgress({ name: fileName, progress: 0, speed: '连接中...' });
-      setAlistMsg(`🚀 开始浏览器多线程加速: ${fileName}`);
+      let fileHandle: any;
+      let writableStream: any;
+      const canUseFileSystemAPI = 'showSaveFilePicker' in window;
+
+      if (canUseFileSystemAPI) {
+        try {
+          fileHandle = await (window as any).showSaveFilePicker({ suggestedName: fileName });
+          writableStream = await fileHandle.createWritable();
+        } catch (err: any) {
+          if (err.name === 'AbortError') return;
+          console.warn('showSaveFilePicker failed', err);
+        }
+      }
+
+      const useBlobFallback = !writableStream;
+      if (useBlobFallback && fileSize > 2 * 1024 * 1024 * 1024) {
+        setAlistMsg('❌ 当前浏览器不支持流式保存，文件超过2GB会导致崩溃，请改用“CF单线程直连”或“复制直链”');
+        return;
+      }
+
+      const maxProgressStr = (fileSize / 1024 / 1024).toFixed(2) + ' MB';
+      setDownloadProgress({ name: fileName, progress: 0, speed: '准备下载...', downloaded: '0 MB', total: maxProgressStr });
+      setAlistMsg(`🚀 开始浏览器多线程极速下载: ${fileName}`);
 
       const chunkSize = 5 * 1024 * 1024; // 每块 5MB
       const chunksCount = Math.ceil(fileSize / chunkSize);
-      const chunks: Blob[] = new Array(chunksCount);
+      const chunks: Blob[] = useBlobFallback ? new Array(chunksCount) : [];
 
       let downloadedBytes = 0;
       let lastTime = Date.now();
       let lastBytes = 0;
       let nextChunkIndex = 0;
       const PARALLEL_REQUESTS = 8; // 8线程并发
+      let writeMutex = Promise.resolve();
+
+      const progressTimer = setInterval(() => {
+        const now = Date.now();
+        const duration = (now - lastTime) / 1000;
+        if (duration >= 1) {
+          const speedBytes = downloadedBytes - lastBytes;
+          const speedMBps = (speedBytes / 1024 / 1024 / duration).toFixed(2);
+          setDownloadProgress({
+            name: fileName,
+            progress: Math.min(99, Math.round((downloadedBytes / fileSize) * 100)),
+            speed: `${speedMBps} MB/s`,
+            downloaded: (downloadedBytes / 1024 / 1024).toFixed(2) + ' MB',
+            total: maxProgressStr
+          });
+          lastTime = now;
+          lastBytes = downloadedBytes;
+        }
+      }, 1000);
 
       const downloadChunk = async (index: number) => {
         const start = index * chunkSize;
@@ -193,23 +223,18 @@ export default function Home() {
             });
             if (!response.ok && response.status !== 206) throw new Error(`Chunk ${index} failed with ${response.status}`);
             const arrayBuffer = await response.arrayBuffer();
-            chunks[index] = new Blob([arrayBuffer]);
+
+            if (writableStream) {
+              // 边下边存，防止吃内存
+              writeMutex = writeMutex.then(async () => {
+                await writableStream.write({ type: 'write', position: start, data: arrayBuffer });
+              });
+              await writeMutex;
+            } else {
+              chunks[index] = new Blob([arrayBuffer]);
+            }
 
             downloadedBytes += arrayBuffer.byteLength;
-
-            // 每秒更新一次进度和速度
-            const now = Date.now();
-            if (now - lastTime > 1000) {
-              const speedBytes = downloadedBytes - lastBytes;
-              const speedMBps = (speedBytes / 1024 / 1024 / ((now - lastTime) / 1000)).toFixed(2);
-              setDownloadProgress({
-                name: fileName,
-                progress: Math.min(99, Math.round((downloadedBytes / fileSize) * 100)),
-                speed: `${speedMBps} MB/s`
-              });
-              lastTime = now;
-              lastBytes = downloadedBytes;
-            }
             return;
           } catch (e) {
             retries--;
@@ -232,18 +257,23 @@ export default function Home() {
       }
       await Promise.all(workers);
 
-      setDownloadProgress({ name: fileName, progress: 100, speed: '合并保存中...' });
+      clearInterval(progressTimer);
+      setDownloadProgress({ name: fileName, progress: 100, speed: '合并保存中...', downloaded: maxProgressStr, total: maxProgressStr });
 
-      // 合并并下载文件
-      const finalBlob = new Blob(chunks, { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(finalBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000); // 清理内存
+      if (writableStream) {
+        await writableStream.close();
+      } else {
+        // 合并并下载文件 (仅Fallback)
+        const finalBlob = new Blob(chunks, { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(finalBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000); // 清理内存
+      }
 
       setAlistMsg(`✅ ${fileName} 下载完成！`);
     } catch (e) {
@@ -725,9 +755,12 @@ export default function Home() {
             {/* 多线程下载进度条 */}
             {downloadProgress && (
               <div className="px-4 py-3 border-b border-zinc-800/50 bg-blue-900/10">
-                <div className="flex justify-between text-[11px] mb-1.5">
-                  <span className="text-blue-400 font-bold truncate pr-4">{downloadProgress.name}</span>
-                  <span className="text-zinc-400 shrink-0">{downloadProgress.speed} · {downloadProgress.progress}%</span>
+                <div className="flex justify-between text-[11px] mb-1.5 break-all">
+                  <span className="text-blue-400 font-bold pr-4 flex-1">{downloadProgress.name}</span>
+                  <div className="flex gap-2 text-zinc-400 shrink-0 text-right">
+                    <span className="text-pink-400 hidden sm:inline">{downloadProgress.downloaded || '0 MB'} / {downloadProgress.total || '0 MB'}</span>
+                    <span>{downloadProgress.speed} · {downloadProgress.progress}%</span>
+                  </div>
                 </div>
                 <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
                   <div
