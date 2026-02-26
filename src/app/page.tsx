@@ -55,6 +55,7 @@ export default function Home() {
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string, downloaded?: string, total?: string } | null>(null);
+  const cancelWebNDMRef = useRef<(() => void) | null>(null);
   const [threadCount, setThreadCount] = useState<number | string>(3); // 默认3线程
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -258,17 +259,8 @@ export default function Home() {
 
   // 小文件直接走 AList /d/ 302重定向（最快）
   const alistDirectDownload = (filePath: string, fileName: string) => {
-    fetch('/api/alist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get', path: filePath }),
-    }).then(r => r.json()).then(data => {
-      const sign = data.code === 200 ? (data.data?.sign || '') : '';
-      const url = sign ? `${ALIST_BASE}/d${filePath}?sign=${sign}` : `${ALIST_BASE}/d${filePath}`;
-      window.location.href = url; // 移动端直接跳转
-    }).catch(() => {
-      window.location.href = `${ALIST_BASE}/d${filePath}`;
-    });
+    // 强制小文件走服务端代理，否则百度直链没有 User-Agent 会直接报 403 或者被切断为 0 字节
+    alistProxyDownload(filePath, fileName);
   };
 
   // 服务端代理下载
@@ -303,6 +295,15 @@ export default function Home() {
       let nextChunkIndex = 0;
       const PARALLEL_REQUESTS = typeof threadCount === 'number' && threadCount > 0 && threadCount <= 32 ? threadCount : 3;
 
+      let isCancelled = false;
+      const activeControllers = new Set<AbortController>();
+      cancelWebNDMRef.current = () => {
+        isCancelled = true;
+        activeControllers.forEach(c => c.abort());
+        setDownloadProgress(null);
+        setAlistMsg('⏸️ 已取消下载喵');
+      };
+
       const progressTimer = setInterval(() => {
         const now = Date.now();
         const duration = (now - lastTime) / 1000;
@@ -331,7 +332,10 @@ export default function Home() {
         let speedThreshold = 80 * 1024; // 3秒 80KB 的底线要求
 
         while (currentStart <= end && retries > 0) {
+          if (isCancelled) throw new Error('CanceledByUser');
           const controller = new AbortController();
+          activeControllers.add(controller);
+
           let fetchBytes = 0;
           let lastCheckBytes = 0;
           let connected = false;
@@ -375,10 +379,13 @@ export default function Home() {
               fetchBytes += value.length;
             }
 
+            activeControllers.delete(controller);
             clearInterval(speedCheck);
             break;
           } catch (e: any) {
+            activeControllers.delete(controller);
             clearInterval(speedCheck);
+            if (isCancelled) throw new Error('CanceledByUser');
             retries--;
             if (e.name === 'AbortError') {
               // 自适应降级阈值，如果确实网太差，避免无限死循环重试
@@ -1390,6 +1397,12 @@ export default function Home() {
                 {/* 多线程下载进度条 */}
                 {downloadProgress && (
                   <div className="px-4 py-3 border-b border-zinc-800/50 bg-blue-900/10">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Downloading...</div>
+                      <button onClick={() => cancelWebNDMRef.current?.()} className="bg-red-500/20 hover:bg-red-500/40 text-red-500 text-[10px] px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+                        暂停/取消
+                      </button>
+                    </div>
                     <div className="flex justify-between text-[11px] mb-1.5 break-all items-end">
                       <span className="text-blue-400 font-bold pr-2 flex-1">{downloadProgress.name}</span>
                       <div className="flex flex-col items-end gap-0.5 text-zinc-400 shrink-0 text-right">

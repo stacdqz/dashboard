@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const ALIST_BASE_DEFAULT = (process.env.NEXT_PUBLIC_ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
 const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
@@ -7,6 +7,7 @@ const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [adminToken, setAdminToken] = useState<string | null>(null);
+  const cancelWebNDMRef = useRef<(() => void) | null>(null);
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -130,17 +131,10 @@ export default function Home() {
     } catch { setAlistError('网盘接口异常'); }
     finally { setAlistLoading(false); }
   };
-  // === 下载逻辑（与 my-terminal 完全一致）===
+  // === 下载逻辑 ===
   const alistDirectDownload = (filePath: string, _fileName: string) => {
-    fetchAlist({ action: 'get', path: filePath })
-      .then(r => r.json())
-      .then(data => {
-        const sign = data.code === 200 ? (data.data?.sign || '') : '';
-        const url = sign ? `${getAlistBase()}/d${filePath}?sign=${sign}` : `${getAlistBase()}/d${filePath}`;
-        window.location.href = url; // 移动端直接跳转，防止 popup 被拦截
-      }).catch(() => {
-        window.location.href = `${getAlistBase()}/d${filePath}`;
-      });
+    // 强制小文件走服务端代理，否则百度直链没有 User-Agent 会直接报 403 或者被切断为 0 字节
+    alistProxyDownload(filePath, _fileName);
   };
 
   const alistProxyDownload = (filePath: string, fileName: string) => {
@@ -178,6 +172,15 @@ export default function Home() {
       let nextChunkIndex = 0;
       const PARALLEL_REQUESTS = typeof threadCount === 'number' && threadCount > 0 && threadCount <= 32 ? threadCount : 3;
 
+      let isCancelled = false;
+      const activeControllers = new Set<AbortController>();
+      cancelWebNDMRef.current = () => {
+        isCancelled = true;
+        activeControllers.forEach(c => c.abort());
+        setDownloadProgress(null);
+        setAlistMsg('⏸️ 已取消下载');
+      };
+
       const progressTimer = setInterval(() => {
         const now = Date.now();
         const duration = (now - lastTime) / 1000;
@@ -206,7 +209,10 @@ export default function Home() {
         let speedThreshold = 80 * 1024; // 3秒 80KB 的底线要求
 
         while (currentStart <= end && retries > 0) {
+          if (isCancelled) throw new Error('CanceledByUser');
           const controller = new AbortController();
+          activeControllers.add(controller);
+
           let fetchBytes = 0;
           let lastCheckBytes = 0;
           let connected = false;
@@ -250,10 +256,13 @@ export default function Home() {
               fetchBytes += value.length;
             }
 
+            activeControllers.delete(controller);
             clearInterval(speedCheck);
             break;
           } catch (e: any) {
+            activeControllers.delete(controller);
             clearInterval(speedCheck);
+            if (isCancelled) throw new Error('CanceledByUser');
             retries--;
             if (e.name === 'AbortError') {
               // 自适应降级阈值，如果确实网太差，避免无限死循环重试
@@ -566,6 +575,26 @@ export default function Home() {
                 恢复默认
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 下载进度条 */}
+      {downloadProgress && (
+        <div className="fixed bottom-6 right-6 bg-black/80 backdrop-blur-md border border-blue-500/30 rounded-2xl p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-5 z-50 w-[300px]">
+          <div className="flex justify-between items-start mb-2">
+            <div className="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Downloading...</div>
+            <button onClick={() => cancelWebNDMRef.current?.()} className="bg-red-500/20 hover:bg-red-500/40 text-red-500 text-[10px] px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+              ⏸️ 取消下载
+            </button>
+          </div>
+          <div className="text-xs text-white font-mono truncate mb-3">{downloadProgress.name}</div>
+          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
+            <div className="h-full bg-blue-500 transition-all duration-500 ease-out" style={{ width: `${downloadProgress.progress}%` }}></div>
+          </div>
+          <div className="flex justify-between text-[10px] text-zinc-400">
+            <span>{downloadProgress.downloaded} / {downloadProgress.total}</span>
+            <span>{downloadProgress.speed}</span>
           </div>
         </div>
       )}
