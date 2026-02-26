@@ -28,7 +28,7 @@ export default function Home() {
   const [alistNewName, setAlistNewName] = useState('');
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string, size: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ name: string, progress: number, speed: string, downloaded?: string, total?: string } | null>(null);
-  const [threadCount, setThreadCount] = useState<number>(3); // 默认3线程
+  const [threadCount, setThreadCount] = useState<number | string>(3); // 默认3线程
 
   // === 远端 AList 设置（仅本地生效） ===
   const [showSettings, setShowSettings] = useState(false);
@@ -159,23 +159,8 @@ export default function Home() {
         return;
       }
 
-      let fileHandle: any;
-      let writableStream: any;
-      const canUseFileSystemAPI = 'showSaveFilePicker' in window;
-
-      if (canUseFileSystemAPI) {
-        try {
-          fileHandle = await (window as any).showSaveFilePicker({ suggestedName: fileName });
-          writableStream = await fileHandle.createWritable();
-        } catch (err: any) {
-          if (err.name === 'AbortError') return;
-          console.warn('showSaveFilePicker failed', err);
-        }
-      }
-
-      const useBlobFallback = !writableStream;
-      if (useBlobFallback && fileSize > 2 * 1024 * 1024 * 1024) {
-        setAlistMsg('❌ 当前浏览器不支持流式保存，文件超过2GB会导致崩溃，请改用“CF单线程直连”或“复制直链”');
+      if (fileSize > 2 * 1024 * 1024 * 1024) {
+        setAlistMsg('❌ 文件超过2GB，可能导致浏览器内存不足崩溃，请改用“复制直链”');
         return;
       }
 
@@ -185,14 +170,13 @@ export default function Home() {
 
       const chunkSize = 5 * 1024 * 1024; // 每块 5MB
       const chunksCount = Math.ceil(fileSize / chunkSize);
-      const chunks: Blob[] = useBlobFallback ? new Array(chunksCount) : [];
+      const chunks: Blob[] = new Array(chunksCount);
 
       let downloadedBytes = 0;
       let lastTime = Date.now();
       let lastBytes = 0;
       let nextChunkIndex = 0;
-      const PARALLEL_REQUESTS = threadCount > 0 && threadCount <= 32 ? threadCount : 3;
-      let writeMutex = Promise.resolve();
+      const PARALLEL_REQUESTS = typeof threadCount === 'number' && threadCount > 0 && threadCount <= 32 ? threadCount : 3;
 
       const progressTimer = setInterval(() => {
         const now = Date.now();
@@ -226,31 +210,16 @@ export default function Home() {
             if (!response.body) throw new Error('ReadableStream not supported');
 
             const reader = response.body.getReader();
-            let offset = start;
             const chunkData: any[] = [];
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-
-              if (writableStream) {
-                // 边下边存，防止吃内存
-                const writePos = offset;
-                writeMutex = writeMutex.then(async () => {
-                  await writableStream.write({ type: 'write', position: writePos, data: value });
-                });
-                await writeMutex;
-              } else {
-                chunkData.push(value);
-              }
-
-              offset += value.length;
+              chunkData.push(value);
               downloadedBytes += value.length;
             }
 
-            if (!writableStream) {
-              chunks[index] = new Blob(chunkData as any);
-            }
+            chunks[index] = new Blob(chunkData as any);
             return;
           } catch (e) {
             retries--;
@@ -276,20 +245,16 @@ export default function Home() {
       clearInterval(progressTimer);
       setDownloadProgress({ name: fileName, progress: 100, speed: '合并保存中...', downloaded: maxProgressStr, total: maxProgressStr });
 
-      if (writableStream) {
-        await writableStream.close();
-      } else {
-        // 合并并下载文件 (仅Fallback)
-        const finalBlob = new Blob(chunks, { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(finalBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 10000); // 清理内存
-      }
+      // 纯内存 Blob 合并并下载
+      const finalBlob = new Blob(chunks, { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(finalBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000); // 清理内存
 
       setAlistMsg(`✅ ${fileName} 下载完成！`);
     } catch (e) {
@@ -635,10 +600,10 @@ export default function Home() {
                   <div className="absolute inset-0 bg-blue-500/10 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500"></div>
                   <div className="relative">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速流式多线程（Web NDM）</span>
+                      <span className="text-[11px] font-bold text-blue-400">⚡ CF 极速多线程（Web NDM）</span>
                       <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded font-bold">黑科技</span>
                     </div>
-                    <div className="text-[10px] text-zinc-500 mt-1">突破单线程限速，边下边存不爆内存</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">免安装直接满速下载，适合文件&lt;2GB</div>
                   </div>
                 </button>
                 <div className="px-3 pb-2.5 pt-1 bg-zinc-900/50 flex items-center justify-between border-t border-zinc-800/50">
