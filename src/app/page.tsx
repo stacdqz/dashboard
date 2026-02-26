@@ -315,7 +315,7 @@ export default function Home() {
       let lastTime = Date.now();
       let lastBytes = 0;
       let nextChunkIndex = 0;
-      const PARALLEL_REQUESTS = 8; // 8线程并发
+      const PARALLEL_REQUESTS = 3; // 下调为3并发以防 CF 握手超时和截断
       let writeMutex = Promise.resolve();
 
       const progressTimer = setInterval(() => {
@@ -347,19 +347,38 @@ export default function Home() {
               headers: { Range: `bytes=${start}-${end}` }
             });
             if (!response.ok && response.status !== 206) throw new Error(`Chunk ${index} failed with ${response.status}`);
-            const arrayBuffer = await response.arrayBuffer();
+            if (!response.body) throw new Error('ReadableStream not supported');
 
-            if (writableStream) {
-              // 边下边存，防止吃内存
-              writeMutex = writeMutex.then(async () => {
-                await writableStream.write({ type: 'write', position: start, data: arrayBuffer });
-              });
-              await writeMutex;
-            } else {
-              chunks[index] = new Blob([arrayBuffer]);
+            const reader = response.body.getReader();
+            let offset = start;
+            const chunkData: any[] = [];
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              if (writableStream) {
+                // 边下边存，防止吃内存
+                const writePos = offset;
+                writeMutex = writeMutex.then(async () => {
+                  try {
+                    await writableStream.write({ type: 'write', position: writePos, data: value });
+                  } catch (err) {
+                    console.error('Stream write error', err);
+                  }
+                });
+                await writeMutex;
+              } else {
+                chunkData.push(value);
+              }
+
+              offset += value.length;
+              downloadedBytes += value.length;
             }
 
-            downloadedBytes += arrayBuffer.byteLength;
+            if (!writableStream) {
+              chunks[index] = new Blob(chunkData as any);
+            }
             return;
           } catch (e) {
             retries--;
@@ -1353,10 +1372,10 @@ export default function Home() {
                 {/* 多线程下载进度条 */}
                 {downloadProgress && (
                   <div className="px-4 py-3 border-b border-zinc-800/50 bg-blue-900/10">
-                    <div className="flex justify-between text-[11px] mb-1.5 break-all">
-                      <span className="text-blue-400 font-bold pr-4 flex-1">{downloadProgress.name}</span>
-                      <div className="flex gap-2 text-zinc-400 shrink-0 text-right">
-                        <span className="text-pink-400 hidden sm:inline">{downloadProgress.downloaded || '0 MB'} / {downloadProgress.total || '0 MB'}</span>
+                    <div className="flex justify-between text-[11px] mb-1.5 break-all items-end">
+                      <span className="text-blue-400 font-bold pr-2 flex-1">{downloadProgress.name}</span>
+                      <div className="flex flex-col items-end gap-0.5 text-zinc-400 shrink-0 text-right">
+                        <span className="text-pink-400">{downloadProgress.downloaded || '0 MB'} / {downloadProgress.total || '0 MB'}</span>
                         <span>{downloadProgress.speed} · {downloadProgress.progress}%</span>
                       </div>
                     </div>
