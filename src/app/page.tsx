@@ -1109,36 +1109,52 @@ export default function Home() {
                       <div className="relative pl-4 border-l-2 border-pink-500/30">
                         <div className="absolute w-2 h-2 bg-pink-500 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
                         <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-pink-400">v1.0.3</span>
+                          <span className="text-xs font-bold text-pink-400">v1.2.1</span>
                           <span className="text-[10px] text-zinc-500 font-mono">2026-02-28</span>
                         </div>
                         <ul className="text-[11px] text-zinc-400 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-700">
                           <li>修复移动端浏览器拦截 CF 代理加速新窗口弹窗的问题，改为直接跳转下载。</li>
-                          <li>添加了各端同步的版本号标识和更新日志浏览面板。</li>
+                          <li>添加了各端同步的版本号标识和详细的更新日志展示面板。</li>
                         </ul>
                       </div>
 
                       <div className="relative pl-4 border-l-2 border-zinc-800">
                         <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
                         <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-zinc-300">v1.0.2</span>
+                          <span className="text-xs font-bold text-zinc-300">v1.2.0</span>
                           <span className="text-[10px] text-zinc-600 font-mono">2026-02-27</span>
                         </div>
                         <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
-                          <li>修复了大文件 302 直链下载以及批量下载时丢失 sign 参数导致报错的问题。</li>
-                          <li>同步独立了 baidu-pan-alist 纯享版到单独全栈库，并附加 Supabase 流量统计埋点。</li>
+                          <li>移除之前不稳定的多线程方案，整体逻辑退回至更快速稳定的经典直链防封代理模式。</li>
+                          <li>恢复 4 个默认经典的下载触发模式挑选界面。</li>
+                          <li>修复了大文件 302 直链下载以及批量下载时丢失 sign 参数导致 403 的阻断报错问题。</li>
+                          <li>完成了纯享版本 baidu-pan-alist 到单独 Github 全栈库的抽离和同步独立部署。</li>
+                          <li>增加部署了基于 Supabase 的全站流量与精准地域维度分发的后端统计与 API 埋点。</li>
                         </ul>
                       </div>
 
                       <div className="relative pl-4 border-l-2 border-zinc-800">
                         <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
                         <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-zinc-300">v1.0.1</span>
-                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-27</span>
+                          <span className="text-xs font-bold text-zinc-300">v1.1.0</span>
+                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-26</span>
                         </div>
                         <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
-                          <li>移除之前不稳定的 Web-NDM 多线程重构方案，整体下载退回更稳定的经典代理模式。</li>
-                          <li>恢复 4 个默认下载按键界面，化繁为简。</li>
+                          <li>新增 Cloudflare Workers 边缘代理加速下载选项，拯救本地屏蔽的大容量压缩包等文件。</li>
+                          <li>针对移动端的各种极端误触与样式自适应问题做了专门优化与适配。</li>
+                          <li>针对跨网盘（阿里云盘等）增加了原生 AList /p/ 智能服务端代理下载，彻底修复签名缺失报错。</li>
+                        </ul>
+                      </div>
+
+                      <div className="relative pl-4 border-l-2 border-zinc-800">
+                        <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-xs font-bold text-zinc-300">v1.0.0</span>
+                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-25</span>
+                        </div>
+                        <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
+                          <li>初始提交开源项目主线框架：在 Dashboard 控制台核心区域嵌入百度网盘· AList 的深度集成文件流体系。</li>
+                          <li>原生拥有一站式的系统资源独立文件分类视图、新建、极速重命名、实时全选与批处理下载机制。</li>
                         </ul>
                       </div>
                     </div>
@@ -1159,7 +1175,7 @@ export default function Home() {
                       className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-pink-400 hover:bg-zinc-700 transition-colors cursor-pointer border border-pink-500/20"
                       title="查看更新日志"
                     >
-                      v1.0.3
+                      v1.2.1
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1796,12 +1812,13 @@ export default function Home() {
                 </div>
               </div>
             </section>
-          )}
-        </main>
-      </div>
+          )
+          }
+        </main >
+      </div >
 
       {/* 底部终端抽屉 */}
-      <footer className={`border-t border-zinc-800 bg-black flex flex-col transition-all duration-300 ${termOpen ? 'h-64 md:h-64' : 'h-9'} z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]`}>
+      < footer className={`border-t border-zinc-800 bg-black flex flex-col transition-all duration-300 ${termOpen ? 'h-64 md:h-64' : 'h-9'} z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]`}>
         <div onClick={() => setTermOpen(!termOpen)} className="bg-[#0c0c0e] px-3 md:px-6 py-2 flex justify-between items-center cursor-pointer text-[10px] font-black text-zinc-500 hover:text-zinc-300 select-none">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shrink-0"></div>
@@ -1809,25 +1826,27 @@ export default function Home() {
           </div>
           <span className="shrink-0 ml-2">{termOpen ? 'MINIMIZE _' : 'EXPAND ^'}</span>
         </div>
-        {termOpen && (
-          <div ref={scrollRef} className="flex-1 p-2 md:p-4 overflow-y-auto text-xs md:text-sm font-mono bg-black/80 backdrop-blur-md">
-            {logs.map((log, i) => (
-              <div key={i} className={`mb-1 break-words ${log.includes('ERROR') ? 'text-red-500' : log.includes('哥哥') ? 'text-pink-400 font-bold' : log.includes('NETWORK') ? 'text-blue-400' : 'text-emerald-600'}`}>
-                {log}
+        {
+          termOpen && (
+            <div ref={scrollRef} className="flex-1 p-2 md:p-4 overflow-y-auto text-xs md:text-sm font-mono bg-black/80 backdrop-blur-md">
+              {logs.map((log, i) => (
+                <div key={i} className={`mb-1 break-words ${log.includes('ERROR') ? 'text-red-500' : log.includes('哥哥') ? 'text-pink-400 font-bold' : log.includes('NETWORK') ? 'text-blue-400' : 'text-emerald-600'}`}>
+                  {log}
+                </div>
+              ))}
+              <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 items-start sm:items-center">
+                <span className="text-blue-500 font-bold shrink-0">哥哥酱@ZERO:{context} $</span>
+                <input
+                  value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={runCmd}
+                  className="bg-transparent border-none outline-none w-full flex-1 text-white caret-pink-500 font-bold"
+                  placeholder="输入指令..." autoFocus
+                />
               </div>
-            ))}
-            <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mt-2 items-start sm:items-center">
-              <span className="text-blue-500 font-bold shrink-0">哥哥酱@ZERO:{context} $</span>
-              <input
-                value={command} onChange={(e) => setCommand(e.target.value)} onKeyDown={runCmd}
-                className="bg-transparent border-none outline-none w-full flex-1 text-white caret-pink-500 font-bold"
-                placeholder="输入指令..." autoFocus
-              />
             </div>
-          </div>
-        )}
-      </footer>
-    </div>
+          )
+        }
+      </footer >
+    </div >
   );
 }
 
