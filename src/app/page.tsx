@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 
 import { PROJECTS_CONFIG } from '@/lib/config';
 
-const CHANGELOG_DATA = [
+const CHANGELOG_DATA: { commit: string; date: string; message: string; version?: string; milestoneDesc?: string }[] = [
   { commit: '82bbc8e', date: '2026-02-28', message: 'feat: complete changelog history and badge', version: 'v1.3.0', milestoneDesc: '新增并完善了跨区域全栈数据看板组件的自动化日志追踪链。' },
   { commit: '2987c0c', date: '2026-02-28', message: 'feat: complete v1.0 to v1.2 changelog history and badge' },
   { commit: 'f4af374', date: '2026-02-28', message: 'feat: add version badge and changelog popup' },
