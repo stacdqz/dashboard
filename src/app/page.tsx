@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { PROJECTS_CONFIG } from '@/lib/config';
 
 const CHANGELOG_DATA = [
+  { commit: '82bbc8e', date: '2026-02-28', message: 'feat: complete changelog history and badge', version: 'v1.3.0', milestoneDesc: '新增并完善了跨区域全栈数据看板组件的自动化日志追踪链。' },
   { commit: '2987c0c', date: '2026-02-28', message: 'feat: complete v1.0 to v1.2 changelog history and badge' },
   { commit: 'f4af374', date: '2026-02-28', message: 'feat: add version badge and changelog popup' },
-  { commit: 'b88cd25', date: '2026-02-28', message: 'Fix CF download popup block on mobile' },
-  { commit: '0db06b6', date: '2026-02-27', message: 'Fix AList direct download URL missing sign parameter' },
+  { commit: 'b88cd25', date: '2026-02-28', message: 'Fix CF download popup block on mobile', version: 'v1.2.1', milestoneDesc: '修复移动端 CF 拦截弹窗机制，通过重定向引擎全面优化下载体验。' },
+  { commit: '0db06b6', date: '2026-02-27', message: 'Fix AList direct download URL missing sign parameter', version: 'v1.2.0', milestoneDesc: '全面退回稳定性绝佳的反代防封引擎，并修复大体积文件直链 sign 签名漏验核心报错。' },
   { commit: '5a9ff26', date: '2026-02-27', message: 'Revert download logic to classic proxy mode and remove Web-NDM' },
   { commit: 'b425416', date: '2026-02-26', message: 'feat: small Baidu files default map to proxy server to prevent 403; add cancel download button for Web NDM' },
   { commit: '276f54c', date: '2026-02-26', message: 'fix: Web NDM handle Cloudflare missing Range header or caching resulting in 200 OK fallback limits' },
@@ -15,35 +16,35 @@ const CHANGELOG_DATA = [
   { commit: 'd5a9091', date: '2026-02-26', message: 'fix: Revert Web NDM streaming to pure memory blob for max speed, fix thread input component value update bug' },
   { commit: 'bbbbc7a', date: '2026-02-26', message: 'feat: Add user selectable thread count for multithread download' },
   { commit: '1e475b0', date: '2026-02-26', message: 'fix: Web NDM slow chunks issue, stream response to disk, reduce to 3 threads, fix mobile layout' },
-  { commit: 'ceee006', date: '2026-02-26', message: 'feat: enhance multithread download and direct download fixes for mobile' },
+  { commit: 'ceee006', date: '2026-02-26', message: 'feat: enhance multithread download and direct download fixes for mobile', version: 'v1.1.2', milestoneDesc: '重装移动响应式视图机制，引入更完善的手机端自适应操作和多功能按键排版。' },
   { commit: '405d446', date: '2026-02-26', message: 'feat: Add AList custom server settings for admin' },
   { commit: '54b683a', date: '2026-02-26', message: 'feat: Add single thread CF download fallback to modal' },
   { commit: 'ce97770', date: '2026-02-26', message: 'feat: Add multithreading Web NDM downloader for Baidu Pan CF to main dashboard' },
   { commit: '4ea312d', date: '2026-02-26', message: 'feat: implement multithreaded Web NDM downloader for Baidu Pan CF' },
-  { commit: 'bf928dd', date: '2026-02-26', message: 'fix: mobile CF download - pre-open window to avoid popup blocker' },
+  { commit: 'bf928dd', date: '2026-02-26', message: 'fix: mobile CF download - pre-open window to avoid popup blocker', version: 'v1.1.1', milestoneDesc: '实现 Cloudflare 边缘代理分发机制，彻底绕过大体积文件的常规 403 阻断网关。' },
   { commit: '573f68a', date: '2026-02-26', message: 'fix: Aliyun downloads use AList /p/ proxy mode, errors return text not JSON' },
   { commit: 'd7f5968', date: '2026-02-26', message: 'fix: match /aliyun_new path for Aliyun Cloud Drive proxy downloads' },
-  { commit: '8899a17', date: '2026-02-26', message: 'fix: Aliyun Cloud Drive uses proxy download (signed URL needs server headers)' },
+  { commit: '8899a17', date: '2026-02-26', message: 'fix: Aliyun Cloud Drive uses proxy download (signed URL needs server headers)', version: 'v1.1.0', milestoneDesc: '攻克非百度全站跨域网盘(如阿里云盘等)源文件服务器验证拦截，升级 AList 智能 /p/ 隐切下载系统。' },
   { commit: 'df597f5', date: '2026-02-26', message: 'fix: all storages use direct download, only Baidu large files show method picker' },
   { commit: 'b022dba', date: '2026-02-26', message: 'fix: use cf.ryantan.fun instead of workers.dev for CF proxy' },
   { commit: '68766af', date: '2026-02-26', message: 'feat: add Cloudflare Workers edge proxy download option' },
   { commit: '54ab4ba', date: '2026-02-26', message: 'feat: add auto-UA download option for large Baidu Pan files' },
-  { commit: '1898d0a', date: '2026-02-26', message: 'feat: 32-thread parallel download engine for Baidu Pan with progress bar' },
+  { commit: '1898d0a', date: '2026-02-26', message: 'feat: 32-thread parallel download engine for Baidu Pan with progress bar', version: 'v1.0.3', milestoneDesc: '植入大规模并发实验网络测试，并在单文件体系内引入基于头部的 UA 防篡改下载系统。' },
   { commit: '9505da3', date: '2026-02-25', message: 'feat: smart download - small files direct, large files show method picker' },
-  { commit: '0214efa', date: '2026-02-25', message: 'feat: add IP_Stats panel, Cloud_Drive checkboxes + batch download' },
+  { commit: '0214efa', date: '2026-02-25', message: 'feat: add IP_Stats panel, Cloud_Drive checkboxes + batch download', version: 'v1.0.2', milestoneDesc: '开发多环境支持的大容量批处理下载模型以及全网流向地域级监控图表。' },
   { commit: '7c8068e', date: '2026-02-25', message: 'fix: remove stale download modal JSX, clear all TS errors' },
   { commit: 'a3a5e98', date: '2026-02-25', message: 'feat: server-side User-Agent proxy download for Baidu Pan (no plugin needed)' },
   { commit: 'b6cfcd1', date: '2026-02-25', message: 'feat: add download options modal for Cloud_Drive (direct link + proxy)' },
   { commit: 'ba9c6a6', date: '2026-02-25', message: 'fix: use AList /p/ proxy mode for Baidu Pan large file downloads' },
   { commit: '62e3f5e', date: '2026-02-25', message: 'fix: Use AList proxy /d/ URL for downloads to bypass Baidu Pan auth' },
-  { commit: '584207f', date: '2026-02-25', message: 'feat: Add AList Cloud_Drive panel to home page' },
+  { commit: '584207f', date: '2026-02-25', message: 'feat: Add AList Cloud_Drive panel to home page', version: 'v1.0.1', milestoneDesc: '从 0 到 1 飞越：将 AList 文件流系统完美嵌合成 Dashboard 数据大屏内置独立工作组件。' },
   { commit: '86655b8', date: '2026-02-25', message: 'fix: allow sql run in production' },
   { commit: '9c26c0b', date: '2026-02-25', message: 'fix: allow github upload in production' },
   { commit: '25ea2a6', date: '2026-02-25', message: 'feat: optimize github upload to support binary files' },
   { commit: '5559d8f', date: '2026-02-25', message: 'feat: Mobile responsive adaptation' },
   { commit: '5d69123', date: '2026-02-25', message: 'Add postcss.config.mjs and eslint.config.mjs to fix Tailwind CSS styling' },
   { commit: '378d1be', date: '2026-02-25', message: 'Add missing files: _auth.ts, globals.css, favicon, login, sql-run, github-files, github-upload, next.config.ts' },
-  { commit: '46d1068', date: '2026-02-25', message: 'Initial commit – dashboard code' },
+  { commit: '46d1068', date: '2026-02-25', message: 'Initial commit – dashboard code', version: 'v1.0.0', milestoneDesc: '宇宙肇始：建立一站式包含 Vercel 域名解析、GitHub 代码推送及 Supabase SQL 可视化控制阵列大盘！' },
 ];
 
 export default function Home() {
@@ -1002,8 +1003,17 @@ export default function Home() {
           {context === 'home' ? (
             /* --- 全局主页 --- */
             <section className="animate-in fade-in duration-500 max-w-5xl mx-auto">
-              <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tighter italic">SYSTEM_ROOT</h1>
-              <p className="text-zinc-500 mb-6 md:mb-10 text-sm md:text-base">欢迎回来，哥哥。所有系统运行正常。</p>
+              <div className="flex items-center gap-4 mb-2">
+                <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter italic">SYSTEM_ROOT</h1>
+                <button
+                  onClick={() => setShowChangelog(true)}
+                  className="text-[12px] px-2 py-0.5 rounded-full bg-zinc-900 border border-pink-500/40 text-pink-400 hover:bg-zinc-800 hover:border-pink-300 transition-colors shadow-lg cursor-pointer"
+                  title="查看完整系统更新日志"
+                >
+                  v1.3.0 ✨
+                </button>
+              </div>
+              <p className="text-zinc-500 mb-6 md:mb-10 text-sm md:text-base">欢迎回来，哥哥。所有数据分析大盘模块运行正常。</p>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
                 <GlobalCard label="PROJECTS" value={Object.keys(PROJECTS_CONFIG).length} sub="Active Repos" />
@@ -1149,73 +1159,39 @@ export default function Home() {
                     </div>
 
                     <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar pb-6">
-
-                      <div className="text-[12px] font-bold text-zinc-400 mb-2 border-b border-zinc-800 pb-2">🎉 主要版本里程碑</div>
-                      <div className="relative pl-4 border-l-2 border-pink-500/30">
-                        <div className="absolute w-2 h-2 bg-pink-500 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-pink-400">v1.2.1</span>
-                          <span className="text-[10px] text-zinc-500 font-mono">2026-02-28</span>
-                        </div>
-                        <ul className="text-[11px] text-zinc-400 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-700">
-                          <li>修复移动端浏览器拦截 CF 代理加速新窗口弹窗的问题，改为直接跳转下载。</li>
-                          <li>添加了各端同步的版本号标识和详细的更新日志展示面板（追溯了第一行代码起的所有 Commit）。</li>
-                        </ul>
-                      </div>
-
-                      <div className="relative pl-4 border-l-2 border-zinc-800">
-                        <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-zinc-300">v1.2.0</span>
-                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-27</span>
-                        </div>
-                        <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
-                          <li>移除之前不稳定的多线程方案，整体逻辑退回至更快速稳定的经典直链防封代理模式。</li>
-                          <li>恢复 4 个默认经典的下载触发模式挑选界面。</li>
-                          <li>修复了大文件 302 直链下载以及批量下载时丢失 sign 参数导致 403 的阻断报错问题。</li>
-                          <li>完成了纯享版本 baidu-pan-alist 到单独 Github 全栈库的抽离和同步独立部署。</li>
-                          <li>增加部署了基于 Supabase 的全站流量与精准地域维度分发的后端统计与 API 埋点。</li>
-                        </ul>
-                      </div>
-
-                      <div className="relative pl-4 border-l-2 border-zinc-800">
-                        <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-zinc-300">v1.1.0</span>
-                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-26</span>
-                        </div>
-                        <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
-                          <li>新增 Cloudflare Workers 边缘代理加速下载选项，拯救本地屏蔽的大容量压缩包等文件。</li>
-                          <li>针对移动端的各种极端误触与样式自适应问题做了专门优化与适配。</li>
-                          <li>针对跨网盘（阿里云盘等）增加了原生 AList /p/ 智能服务端代理下载，彻底修复签名缺失报错。</li>
-                        </ul>
-                      </div>
-
-                      <div className="relative pl-4 border-l-2 border-zinc-800 pb-4">
-                        <div className="absolute w-2 h-2 bg-zinc-700 rounded-full left-[-5px] top-1.5 ring-4 ring-zinc-950"></div>
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-xs font-bold text-zinc-300">v1.0.0</span>
-                          <span className="text-[10px] text-zinc-600 font-mono">2026-02-25</span>
-                        </div>
-                        <ul className="text-[11px] text-zinc-500 space-y-1 list-disc pl-3 mt-1 marker:text-zinc-800">
-                          <li>初始提交开源项目主线框架：在 Dashboard 控制台核心区域嵌入百度网盘· AList 的深度集成文件流体系。</li>
-                          <li>原生拥有一站式的系统资源独立文件分类视图、新建、极速重命名、实时全选与批处理下载机制。</li>
-                        </ul>
-                      </div>
-
-                      <div className="text-[12px] font-bold text-zinc-500 mt-6 mb-2 border-b border-zinc-800 pb-2">🗃️ 完整 Git Commit 记录 (共 {CHANGELOG_DATA.length} 条)</div>
                       <div className="space-y-3">
-                        {CHANGELOG_DATA.map((log, index) => (
-                          <div key={log.commit} className="relative pl-3 border-l-2 border-zinc-800/60">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-[10px] bg-zinc-800/80 px-1 py-0.5 rounded font-mono text-zinc-400">{log.commit}</span>
-                              <span className="text-[9px] text-zinc-600 font-mono">{log.date}</span>
+                        {CHANGELOG_DATA.map((log, index) => {
+                          if (log.version) {
+                            return (
+                              <div key={log.commit} className="relative pl-5 border-l-2 border-pink-500/40 py-2 mt-4 first:mt-0">
+                                <div className="absolute w-2.5 h-2.5 bg-pink-500 rounded-full left-[calc(-0.4rem)] top-3 ring-4 ring-zinc-950 shadow-[0_0_8px_rgba(236,72,153,0.8)]"></div>
+                                <div className="flex items-end gap-2 mb-1.5 pt-0.5">
+                                  <span className="text-sm font-black text-pink-400 tracking-wide">{log.version}</span>
+                                  <span className="text-[10px] bg-zinc-800/80 px-1 py-0.5 rounded font-mono text-zinc-500">{log.commit}</span>
+                                  <span className="text-[10px] text-zinc-600 font-mono mb-[1px]">{log.date}</span>
+                                </div>
+                                <div className="text-[12px] text-zinc-300 font-medium mb-1 line-clamp-2 pr-2 leading-relaxed">
+                                  {log.milestoneDesc}
+                                </div>
+                                <div className="text-[11px] text-zinc-500 leading-tight">
+                                  &gt; {log.message}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div key={log.commit} className="relative pl-5 border-l-2 border-zinc-800/80 py-0.5">
+                              <div className="absolute w-1.5 h-1.5 bg-zinc-700 rounded-full left-[calc(-0.25rem)] top-2 ring-2 ring-zinc-950"></div>
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-[10px] text-zinc-500 font-mono">{log.commit}</span>
+                                <span className="text-[9px] text-zinc-600 font-mono">{log.date}</span>
+                              </div>
+                              <div className="text-[10px] text-zinc-400 leading-tight">
+                                {log.message}
+                              </div>
                             </div>
-                            <div className="text-[10px] text-zinc-500 leading-tight">
-                              {log.message}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1230,13 +1206,6 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black tracking-widest uppercase italic text-zinc-500">Cloud_Drive</span>
                     <span className="text-[10px] text-zinc-600">· AList</span>
-                    <button
-                      onClick={() => setShowChangelog(true)}
-                      className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-pink-400 hover:bg-zinc-700 transition-colors cursor-pointer border border-pink-500/20"
-                      title="查看更新日志"
-                    >
-                      v1.2.1
-                    </button>
                   </div>
                   <div className="flex items-center gap-2">
                     {adminToken && (
