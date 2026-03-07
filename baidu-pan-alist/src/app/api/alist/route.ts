@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { verifyAdminToken } from '../_auth';
+import { verifyToken } from '../_auth';
+import { getUserPermissions } from '@/lib/users';
 
-const DEFAULT_ALIST_URL = (process.env.ALIST_URL || 'http://47.108.222.119:5244').replace(/\/+$/, '');
+const DEFAULT_ALIST_URL = (process.env.NEXT_PUBLIC_ALIST_URL || 'https://frp-gap.com:37492').replace(/\/+$/, '');
 const DEFAULT_ALIST_USERNAME = process.env.ALIST_USERNAME || '';
 const DEFAULT_ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
 
@@ -58,6 +59,14 @@ export async function POST(request: Request) {
             dir_name?: string;
         };
 
+        const authHeader = request.headers.get('authorization') || undefined;
+
+        // 所有操作都需要登录
+        const user = verifyToken(authHeader);
+        if (!user) {
+            return NextResponse.json({ code: 401, message: '请先登录' }, { status: 401 });
+        }
+
         const customUrl = request.headers.get('x-alist-url');
         const customUser = request.headers.get('x-alist-username');
         const customPass = request.headers.get('x-alist-password');
@@ -72,12 +81,23 @@ export async function POST(request: Request) {
             return NextResponse.json({ code: 400, message: '缺少 action 参数' }, { status: 400 });
         }
 
-        const writeActions = ['mkdir', 'remove', 'rename'];
-        if (writeActions.includes(action)) {
-            const authHeader = request.headers.get('authorization') || undefined;
-            if (!verifyAdminToken(authHeader)) {
-                return NextResponse.json({ code: 401, message: '需要管理员权限喵...' }, { status: 401 });
-            }
+        // 获取用户颗粒度权限
+        const perms = await getUserPermissions(user.username, user.role);
+
+        // 写操作与读取操作精细权限校验
+        const writeActions = ['mkdir', 'remove', 'rename', 'upload'];
+
+        if (action === 'list' || action === 'get') {
+            if (!perms.view) return NextResponse.json({ code: 403, message: '无权浏览文件' }, { status: 403 });
+        }
+        if (action === 'mkdir') {
+            if (!perms.upload) return NextResponse.json({ code: 403, message: '无权创建文件夹（需要上传权限）' }, { status: 403 });
+        }
+        if (action === 'remove') {
+            if (!perms.delete) return NextResponse.json({ code: 403, message: '无权删除文件' }, { status: 403 });
+        }
+        if (action === 'rename') {
+            if (!perms.rename) return NextResponse.json({ code: 403, message: '无权修改文件/文件夹名' }, { status: 403 });
         }
 
         let result: any;
@@ -126,7 +146,7 @@ export async function POST(request: Request) {
     } catch (e: any) {
         console.error('[alist] error:', e);
         return NextResponse.json(
-            { code: 500, message: e?.message || 'AList 代理出错喵...' },
+            { code: 500, message: e?.message || 'AList 代理出错' },
             { status: 500 },
         );
     }
