@@ -100,6 +100,11 @@ export default function Home() {
   const [alistDownloadModal, setAlistDownloadModal] = useState<{ name: string; filePath: string; sign?: string } | null>(null);
   const [showChangelog, setShowChangelog] = useState(false);
 
+  // 文件预览
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: 'image' | 'video' | 'text' | 'pdf'; filePath: string; sign?: string; size?: number } | null>(null);
+  const [previewText, setPreviewText] = useState<string>('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 1. 初始化
@@ -273,6 +278,64 @@ export default function Home() {
   };
 
   // === AList 操作函数 ===
+  const getPreviewType = (name: string): 'image' | 'video' | 'text' | 'pdf' | null => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (['jpg','jpeg','png','gif','webp','svg','bmp','ico'].includes(ext)) return 'image';
+    if (['mp4','webm','ogg','mov'].includes(ext)) return 'video';
+    if (['txt','md','log','json','csv','xml','html','css','js','ts','tsx','py','java','c','cpp','h','yaml','yml','ini','cfg','conf','sh','bat','sql','go','rs','rb','php','swift','kt'].includes(ext)) return 'text';
+    if (ext === 'pdf') return 'pdf';
+    return null;
+  };
+
+  const openPreview = async (item: any, filePath: string) => {
+    const type = getPreviewType(item.name);
+    if (!type) return false;
+    setPreviewLoading(true);
+    setPreviewText('');
+    const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
+    try {
+      const res = await fetch('/api/alist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
+        body: JSON.stringify({ action: 'get', path: filePath }),
+      });
+      const data = await res.json();
+      if (data.code !== 200 || !data.data?.raw_url) {
+        setAlistMsg('❌ 获取文件预览链接失败');
+        setPreviewLoading(false);
+        return false;
+      }
+      let previewUrl = data.data.raw_url;
+      if (isBaidu) {
+        if ((item.size || 0) >= SIZE_THRESHOLD) {
+          previewUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(previewUrl)}`;
+        } else {
+          previewUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
+        }
+      }
+      if (type === 'text') {
+        if ((item.size || 0) > 2 * 1024 * 1024) {
+          setPreviewText('⚠️ 文件超过 2MB，无法在线预览。请下载后查看。');
+        } else {
+          try {
+            const textRes = await fetch(previewUrl);
+            const text = await textRes.text();
+            setPreviewText(text);
+          } catch {
+            setPreviewText('⚠️ 无法加载文件内容。');
+          }
+        }
+      }
+      setPreviewFile({ name: item.name, url: previewUrl, type, filePath, sign: item.sign, size: item.size });
+      setPreviewLoading(false);
+      return true;
+    } catch {
+      setAlistMsg('❌ 预览加载失败');
+      setPreviewLoading(false);
+      return false;
+    }
+  };
+
   const alistListDir = async (path: string) => {
     setAlistLoading(true);
     setAlistError(null);
@@ -325,14 +388,18 @@ export default function Home() {
       const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
       const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun') || alistPath.startsWith('/aliyun_new');
 
+      // 检测是否可预览
+      const previewType = getPreviewType(item.name);
+      if (previewType) {
+        openPreview(item, filePath);
+        return;
+      }
+
       if (isBaidu && (item.size || 0) >= SIZE_THRESHOLD) {
-        // 百度大文件(≥20MB)：弹出下载方式选择
         setAlistDownloadModal({ name: item.name, filePath, sign: item.sign });
       } else if (isAliyun) {
-        // 阿里云盘：签名URL不支持浏览器直跳，走代理
         alistProxyDownload(filePath, item.name);
       } else {
-        // 百度小文件、123网盘等：直链下载
         alistDirectDownload(filePath, item.sign);
       }
     }
@@ -1142,6 +1209,68 @@ export default function Home() {
                           <div className="text-[10px] text-zinc-600">直接跳转百度CDN，大文件可能被拦截</div>
                         </div>
                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 文件预览弹窗 */}
+              {(previewFile || previewLoading) && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 backdrop-blur-xl" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => { setPreviewFile(null); setPreviewText(''); }}>
+                  <div className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl border border-zinc-800" style={{ background: '#0a0a0b' }} onClick={e => e.stopPropagation()}>
+                    {/* 顶部栏 */}
+                    <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 shrink-0 bg-black/60">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-base shrink-0">
+                          {previewFile?.type === 'image' ? '🖼️' : previewFile?.type === 'video' ? '🎬' : previewFile?.type === 'pdf' ? '📄' : '📝'}
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="text-xs font-bold text-zinc-200 truncate">{previewFile?.name || '加载中...'}</h3>
+                          <div className="text-[10px] text-zinc-500">
+                            {previewFile?.size ? `${(previewFile.size / 1024 / 1024).toFixed(2)} MB` : ''} · 在线预览
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {previewFile && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
+                              const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
+                              if (isBaidu && (previewFile.size || 0) >= SIZE_THRESHOLD) {
+                                setAlistDownloadModal({ name: previewFile.name, filePath: previewFile.filePath, sign: previewFile.sign });
+                              } else if (isBaidu || isAliyun) {
+                                alistProxyDownload(previewFile.filePath, previewFile.name);
+                              } else {
+                                alistDirectDownload(previewFile.filePath, previewFile.sign);
+                              }
+                              setPreviewFile(null); setPreviewText('');
+                            }}
+                            className="text-[10px] font-bold px-3 py-1.5 rounded bg-pink-500 text-white hover:bg-pink-400 transition-colors"
+                          >
+                            ⬇️ 下载
+                          </button>
+                        )}
+                        <button onClick={() => { setPreviewFile(null); setPreviewText(''); }} className="hover:text-white text-zinc-500 transition-colors p-1 text-lg">✕</button>
+                      </div>
+                    </div>
+                    
+                    {/* 预览主体 */}
+                    <div className="flex-1 overflow-auto flex items-center justify-center p-4" style={{ background: '#050506' }}>
+                      {previewLoading && !previewFile ? (
+                        <div className="text-zinc-500 text-xs animate-pulse">⏳ 正在加载预览...</div>
+                      ) : previewFile?.type === 'image' ? (
+                        <img src={previewFile.url} alt={previewFile.name} className="max-w-full max-h-[78vh] object-contain rounded-lg" />
+                      ) : previewFile?.type === 'video' ? (
+                        <video src={previewFile.url} controls autoPlay className="max-w-full max-h-[78vh] rounded-lg" style={{ outline: 'none' }} />
+                      ) : previewFile?.type === 'pdf' ? (
+                        <iframe src={previewFile.url} className="w-full h-[78vh] rounded-lg border-0" title={previewFile.name} />
+                      ) : previewFile?.type === 'text' ? (
+                        <pre className="w-full h-full overflow-auto text-xs leading-relaxed text-zinc-400 font-mono p-5 rounded-lg whitespace-pre-wrap break-words" style={{ background: '#0d0d0e', maxHeight: '78vh' }}>
+                          {previewText || '加载中...'}
+                        </pre>
+                      ) : null}
                     </div>
                   </div>
                 </div>
