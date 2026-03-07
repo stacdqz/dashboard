@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 
 import { PROJECTS_CONFIG } from '@/lib/config';
 
@@ -102,6 +103,7 @@ export default function Home() {
 
   // 文件预览
   const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: 'image' | 'video' | 'text' | 'pdf' | 'archive'; filePath: string; sign?: string; size?: number } | null>(null);
+  const [previewItemMeta, setPreviewItemMeta] = useState<{ name: string; filePath: string; sign?: string; size?: number } | null>(null);
   const [previewText, setPreviewText] = useState<string>('');
   const [previewArchiveFiles, setPreviewArchiveFiles] = useState<any[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -1250,44 +1252,44 @@ export default function Home() {
               )}
 
               {/* 文件预览弹窗 */}
-              {(previewFile || previewLoading) && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 backdrop-blur-xl" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => { setPreviewFile(null); setPreviewText(''); }}>
+              {((previewFile || previewLoading) && previewItemMeta) && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 backdrop-blur-xl" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); }}>
                   <div className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl border border-zinc-800" style={{ background: '#0a0a0b' }} onClick={e => e.stopPropagation()}>
                     {/* 顶部栏 */}
                     <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 shrink-0 bg-black/60">
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-base shrink-0">
-                          {previewFile?.type === 'image' ? '🖼️' : previewFile?.type === 'video' ? '🎬' : previewFile?.type === 'pdf' ? '📄' : '📝'}
+                          {previewFile?.type === 'image' ? '🖼️' : previewFile?.type === 'video' ? '🎬' : previewFile?.type === 'pdf' ? '📄' : previewFile?.type === 'archive' ? '📦' : '📝'}
                         </span>
                         <div className="min-w-0">
-                          <h3 className="text-xs font-bold text-zinc-200 truncate">{previewFile?.name || '加载中...'}</h3>
+                          <h3 className="text-xs font-bold text-zinc-200 truncate">{previewItemMeta?.name || '加载中...'}</h3>
                           <div className="text-[10px] text-zinc-500">
-                            {previewFile?.size ? `${(previewFile.size / 1024 / 1024).toFixed(2)} MB` : ''} · 在线预览
+                            {previewItemMeta?.size ? `${(previewItemMeta.size / 1024 / 1024).toFixed(2)} MB` : ''} · 在线预览
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {previewFile && (
+                        {((previewFile || previewLoading) && previewItemMeta) && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
                               const isAliyun = alistPath.startsWith('/阿里云盘') || alistPath.startsWith('/aliyun');
-                              if (isBaidu && (previewFile.size || 0) >= SIZE_THRESHOLD) {
-                                setAlistDownloadModal({ name: previewFile.name, filePath: previewFile.filePath, sign: previewFile.sign });
+                              if (isBaidu && (previewItemMeta.size || 0) >= SIZE_THRESHOLD) {
+                                setAlistDownloadModal({ name: previewItemMeta.name, filePath: previewItemMeta.filePath, sign: previewItemMeta.sign });
                               } else if (isBaidu || isAliyun) {
-                                alistProxyDownload(previewFile.filePath, previewFile.name);
+                                alistProxyDownload(previewItemMeta.filePath, previewItemMeta.name);
                               } else {
-                                alistDirectDownload(previewFile.filePath, previewFile.sign);
+                                alistDirectDownload(previewItemMeta.filePath, previewItemMeta.sign);
                               }
-                              setPreviewFile(null); setPreviewText('');
+                              setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null);
                             }}
                             className="text-[10px] font-bold px-3 py-1.5 rounded bg-pink-500 text-white hover:bg-pink-400 transition-colors"
                           >
                             ⬇️ 下载
                           </button>
                         )}
-                        <button onClick={() => { setPreviewFile(null); setPreviewText(''); }} className="hover:text-white text-zinc-500 transition-colors p-1 text-lg">✕</button>
+                        <button onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); }} className="hover:text-white text-zinc-500 transition-colors p-1 text-lg">✕</button>
                       </div>
                     </div>
                     
