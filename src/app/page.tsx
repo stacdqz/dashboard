@@ -438,22 +438,23 @@ export default function Home() {
     setAlistMsg(null);
     try {
       // AList 的上传接口需要直接请求（前端直接到 AList，需先登录返回 Token）
-      // 先通过我们的代理获取 AList Token
-      const tokenRes = await fetch('/api/alist-token', { method: 'POST' });
-      if (!tokenRes.ok) throw new Error('Cannot get AList token');
-      const { token: alistToken } = await tokenRes.json();
-
       const uploadPath = alistPath.replace(/\/+$/, '') + '/' + alistUploadFile.name;
-      const uploadRes = await fetch(`http://47.108.222.119:5244/api/fs/put`, {
+      // 需要对每一段路径进行独立 URI 编码，避免 / 也被转义导致找不到目录
+      const encodedFilePath = uploadPath.split('/').map(encodeURIComponent).join('/');
+
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${adminToken}`,
+        'File-Path': encodedFilePath,
+        'Content-Type': alistUploadFile.type || 'application/octet-stream',
+        'Content-Length': String(alistUploadFile.size),
+      };
+
+      const uploadRes = await fetch('/api/alist-upload', {
         method: 'PUT',
-        headers: {
-          'Authorization': alistToken,
-          'File-Path': encodeURIComponent(uploadPath),
-          'Content-Type': alistUploadFile.type || 'application/octet-stream',
-          'Content-Length': String(alistUploadFile.size),
-        },
+        headers,
         body: alistUploadFile,
       });
+
       const uploadData = await uploadRes.json();
       if (uploadData.code === 200) {
         setAlistMsg('✅ 上传成功喵！');
