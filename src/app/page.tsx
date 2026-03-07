@@ -101,8 +101,9 @@ export default function Home() {
   const [showChangelog, setShowChangelog] = useState(false);
 
   // 文件预览
-  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: 'image' | 'video' | 'text' | 'pdf'; filePath: string; sign?: string; size?: number } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: 'image' | 'video' | 'text' | 'pdf' | 'archive'; filePath: string; sign?: string; size?: number } | null>(null);
   const [previewText, setPreviewText] = useState<string>('');
+  const [previewArchiveFiles, setPreviewArchiveFiles] = useState<any[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -278,12 +279,13 @@ export default function Home() {
   };
 
   // === AList 操作函数 ===
-  const getPreviewType = (name: string): 'image' | 'video' | 'text' | 'pdf' | null => {
+  const getPreviewType = (name: string): 'image' | 'video' | 'text' | 'pdf' | 'archive' | null => {
     const ext = name.split('.').pop()?.toLowerCase() || '';
     if (['jpg','jpeg','png','gif','webp','svg','bmp','ico'].includes(ext)) return 'image';
     if (['mp4','webm','ogg','mov'].includes(ext)) return 'video';
     if (['txt','md','log','json','csv','xml','html','css','js','ts','tsx','py','java','c','cpp','h','yaml','yml','ini','cfg','conf','sh','bat','sql','go','rs','rb','php','swift','kt'].includes(ext)) return 'text';
     if (ext === 'pdf') return 'pdf';
+    if (['zip','rar','7z','tar','gz'].includes(ext)) return 'archive';
     return null;
   };
 
@@ -292,8 +294,28 @@ export default function Home() {
     if (!type) return false;
     setPreviewLoading(true);
     setPreviewText('');
+    setPreviewArchiveFiles([]);
     const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
     try {
+      if (type === 'archive') {
+         // AList 压缩包挂载支持：请求 /api/alist with action: 'list' on filePath (压缩包也会被当做目录处理)
+         const listRes = await fetch('/api/alist', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
+           body: JSON.stringify({ action: 'list', path: filePath }),
+         });
+         const listData = await listRes.json();
+         if (listData.code === 200 && listData.data?.content) {
+            setPreviewArchiveFiles(listData.data.content);
+            setPreviewFile({ name: item.name, url: '', type, filePath, sign: item.sign, size: item.size });
+         } else {
+            setPreviewText(`⚠️ 无法解析压缩包目录结构或该节点尚未开启后端解压支持。\n详细错误: ${listData.message || '未知'}`);
+            setPreviewFile({ name: item.name, url: '', type, filePath, sign: item.sign, size: item.size });
+         }
+         setPreviewLoading(false);
+         return true;
+      }
+
       const res = await fetch('/api/alist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
@@ -336,6 +358,17 @@ export default function Home() {
     }
   };
 
+  const ALIST_BASE = 'http://47.108.222.119:5244';
+  const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const alistListDir = async (path: string) => {
     setAlistLoading(true);
     setAlistError(null);
@@ -358,9 +391,6 @@ export default function Home() {
       setAlistLoading(false);
     }
   };
-
-  const ALIST_BASE = 'http://47.108.222.119:5244';
-  const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
   // 小文件直接走 AList /d/ 302重定向（最快）
   const alistDirectDownload = (filePath: string, fileSign?: string) => {
@@ -1270,11 +1300,39 @@ export default function Home() {
                       ) : previewFile?.type === 'video' ? (
                         <video src={previewFile.url} controls autoPlay className="max-w-full max-h-[78vh] rounded-lg" style={{ outline: 'none' }} />
                       ) : previewFile?.type === 'pdf' ? (
-                        <iframe src={previewFile.url} className="w-full h-[78vh] rounded-lg border-0" title={previewFile.name} />
+                        <iframe src={previewFile.url} className="w-full h-[78vh] rounded-lg border-0 bg-white" title={previewFile.name} />
                       ) : previewFile?.type === 'text' ? (
                         <pre className="w-full h-full overflow-auto text-xs leading-relaxed text-zinc-400 font-mono p-5 rounded-lg whitespace-pre-wrap break-words" style={{ background: '#0d0d0e', maxHeight: '78vh' }}>
                           {previewText || '加载中...'}
                         </pre>
+                      ) : previewFile?.type === 'archive' ? (
+                        <div className="w-full h-full overflow-auto text-xs text-zinc-400 p-5 rounded-lg" style={{ background: '#0d0d0e', maxHeight: '78vh' }}>
+                          <div className="font-bold text-sm mb-4 text-emerald-400 flex items-center gap-2"><span>📦</span> 压缩包内容预览</div>
+                          {previewArchiveFiles.length > 0 ? (
+                            <div className="space-y-1">
+                               <div className="grid grid-cols-12 gap-2 text-zinc-500 border-b border-zinc-800/50 pb-2 mb-2 font-bold px-2 text-[10px]">
+                                 <div className="col-span-8">文件名 Name</div>
+                                 <div className="col-span-4 text-right">大小 Size</div>
+                               </div>
+                               {previewArchiveFiles.map((af, i) => (
+                                 <div key={i} className="grid grid-cols-12 gap-2 items-center hover:bg-zinc-800/30 p-2 rounded transition-colors group">
+                                   <div className="col-span-8 flex items-center gap-2 truncate">
+                                     <span className="text-xs opacity-80">{af.is_dir ? '📁' : '📄'}</span>
+                                     <span className={af.is_dir ? 'text-blue-400/90 font-bold text-[11px]' : 'text-zinc-300 text-[11px]'}>{af.name || ''}</span>
+                                   </div>
+                                   <div className="col-span-4 text-right text-zinc-500 font-mono text-[10px]">
+                                     {!af.is_dir && formatSize(af.size)}
+                                   </div>
+                                 </div>
+                               ))}
+                               <div className="mt-6 text-zinc-600/60 text-center text-[10px]">
+                                 当前仅支持查看压缩包顶级目录。<br/>如需解压缩、查看深层内容或下载单个文件，请点击上方按钮下载整个压缩包至本地。
+                               </div>
+                            </div>
+                          ) : (
+                            <div className="text-zinc-500 whitespace-pre-wrap">{previewText}</div>
+                          )}
+                        </div>
                       ) : null}
                     </div>
                   </div>
