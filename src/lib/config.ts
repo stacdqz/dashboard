@@ -18,5 +18,15 @@ export const PROJECTS_CONFIG: Record<string, any> = {
         supabase: "",
         color: "#ec4899",
         vercel_env_key: "VERCEL_PROJECT_ID_CJYCUP"
+    },
+    "pan": {
+        name: "💽 科协网盘",
+        github_repo: "stacdqz/bd-pan",
+        vercel_project: "yhwls-projects/bd-pan",
+        domain: "pan.cdqzsta.tech",
+        ali_dns: "cdqzsta.tech",
+        supabase: "pan",
+        color: "#3b82f6",
+        vercel_env_key: "VERCEL_PROJECT_ID_PAN"
     }
 };
