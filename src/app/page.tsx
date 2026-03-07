@@ -1153,13 +1153,18 @@ export default function Home() {
                         onClick={() => {
                           fetch('/api/alist', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
                             body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
                           }).then(r => r.json()).then(data => {
-                            const sign = data.code === 200 ? (data.data?.sign || '') : '';
-                            const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
-                            navigator.clipboard.writeText(url);
-                            setAlistMsg('✅ 直链已复制！粘贴到迅雷/IDM即可满速下载');
+                            if (data.code === 200 && data.data?.raw_url) {
+                              navigator.clipboard.writeText(data.data.raw_url);
+                              setAlistMsg('✅ 百度CDN真实直链已复制！粘贴到IDM/NDM即可满速下载（记得配好UA: pan.baidu.com）');
+                            } else {
+                              const sign = data.code === 200 ? (data.data?.sign || '') : '';
+                              const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
+                              navigator.clipboard.writeText(url);
+                              setAlistMsg('✅ 链接已复制（备用地址）');
+                            }
                           }).catch(() => {
                             navigator.clipboard.writeText(`${ALIST_BASE}/d${alistDownloadModal!.filePath}`);
                             setAlistMsg('✅ 链接已复制');
@@ -1169,8 +1174,8 @@ export default function Home() {
                         className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
                       >
                         <div>
-                          <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM）</div>
-                          <div className="text-[10px] text-zinc-600">粘贴到下载工具，SVIP 满速</div>
+                          <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM/NDM）</div>
+                          <div className="text-[10px] text-zinc-600">复制百度CDN原始地址，搭配IDM/NDM配好UA可达50MB/s</div>
                         </div>
                       </button>
 
