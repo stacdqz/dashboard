@@ -64,12 +64,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ code: 400, message: '缺少 action 参数' }, { status: 400 });
         }
 
-        // list 和 get 不需要管理员权限，其他写操作需要
+        // list 和 get 不需要验证终端特权，其他写操作需要
         const writeActions = ['mkdir', 'remove', 'rename'];
         if (writeActions.includes(action)) {
             const authHeader = request.headers.get('authorization') || undefined;
             if (!verifyAdminToken(authHeader)) {
-                return NextResponse.json({ code: 401, message: '需要管理员权限喵...' }, { status: 401 });
+                return NextResponse.json({ code: 401, message: '需要核心控制权限喵...' }, { status: 401 });
             }
         }
 

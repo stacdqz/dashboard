@@ -9,7 +9,7 @@ const ALIST_PASSWORD = process.env.ALIST_PASSWORD || '';
 export async function POST(request: Request) {
     const authHeader = request.headers.get('authorization') || undefined;
     if (!verifyAdminToken(authHeader)) {
-        return NextResponse.json({ error: '需要管理员权限喵...' }, { status: 401 });
+        return NextResponse.json({ error: '需要核心控制权限喵...' }, { status: 401 });
     }
 
     try {

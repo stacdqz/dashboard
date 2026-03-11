@@ -5,7 +5,7 @@ import Alidns20150109, * as $Alidns20150109 from '@alicloud/alidns20150109';
 import { PROJECTS_CONFIG } from '@/lib/config';
 
 export async function POST(request: Request) {
-    // 1. 验证管理员 Token
+    // 1. 验证系统密钥 Token
     const authHeader = request.headers.get('authorization') || undefined;
     if (!verifyAdminToken(authHeader)) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

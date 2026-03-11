@@ -25,7 +25,7 @@ export const PROJECTS_CONFIG: Record<string, any> = {
         vercel_project: "yhwls-projects/bd-pan",
         domain: "pan.cdqzsta.tech",
         ali_dns: "cdqzsta.tech",
-        supabase: "pan",
+        supabase: "jghupbuitisxfffiajwc",
         color: "#3b82f6",
         vercel_env_key: "VERCEL_PROJECT_ID_PAN"
     }

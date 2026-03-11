@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
-import JSZip from 'jszip';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { PROJECTS_CONFIG } from '@/lib/config';
 
 const CHANGELOG_DATA: { commit: string; date: string; message: string; version: string; isMilestone?: boolean }[] = [
+  { commit: 'bc418a0', date: '2026-03-08', version: 'v1.4.0', message: '集成：完成 UX 与安全架构升级，包含延迟预览、行为审计日志及边缘下载管控。' },
   { commit: '82bbc8e', date: '2026-02-28', version: 'v1.3.0', isMilestone: true, message: '系统：更新跨项目的全栈数据大盘，完善并统合系统变更记录的时间轴组件。' },
   { commit: '2987c0c', date: '2026-02-28', version: 'v1.2.9', message: '系统：全面集成 v1.0 到 v1.2 的各项演变记录，在面板顶层增加版本控制徽章。' },
   { commit: 'f4af374', date: '2026-02-28', version: 'v1.2.8', message: '界面：注入系统版本号状态实时展示，并添加了全新的聚合更新日志弹出视窗交互。' },
@@ -103,10 +103,21 @@ export default function Home() {
 
   // 文件预览
   const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: 'image' | 'video' | 'text' | 'pdf' | 'archive'; filePath: string; sign?: string; size?: number } | null>(null);
-  const [previewItemMeta, setPreviewItemMeta] = useState<{ name: string; filePath: string; sign?: string; size?: number } | null>(null);
+  const [previewItemMeta, setPreviewItemMeta] = useState<{ name: string; filePath: string; sign?: string; size?: number; type?: 'image' | 'video' | 'text' | 'pdf' | 'archive' } | null>(null);
   const [previewText, setPreviewText] = useState<string>('');
-  const [previewArchiveFiles, setPreviewArchiveFiles] = useState<any[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewStarted, setPreviewStarted] = useState(false);
+  const [globalDisableThird, setGlobalDisableThird] = useState(false);
+  const [vercelUsage, setVercelUsage] = useState<any>(null);
+
+  // 科协网盘集成
+  const [panChangelog, setPanChangelog] = useState<any[]>([]);
+  const [panChangelogLimit, setPanChangelogLimit] = useState(5);
+  const [panAdminData, setPanAdminData] = useState<{ users: any[], settings: any } | null>(null);
+  const [panAdminLoading, setPanAdminLoading] = useState(false);
+  const [panAdminMsg, setPanAdminMsg] = useState("");
+  const [panActionLogs, setPanActionLogs] = useState<any[]>([]);
+  const [panActionLogsLimit, setPanActionLogsLimit] = useState(10);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -119,22 +130,109 @@ export default function Home() {
       if (saved) setAdminToken(saved);
     }
 
-    // 获取系统信息
-    const fetchSystemInfo = async () => {
+    // 获取系统信息与全局设置
+    const fetchLoop = async () => {
       try {
         const res = await fetch('/api/system-info');
         const data = await res.json();
         setSystemInfo(data);
+
+        const sRes = await fetch('/api/global-settings');
+        const sData = await sRes.json();
+        if (sData && typeof sData.disableThirdDownload === 'boolean') {
+          setGlobalDisableThird(sData.disableThirdDownload);
+        }
       } catch { }
     };
-    fetchSystemInfo();
-    const sysTimer = setInterval(fetchSystemInfo, 5000);
+    fetchLoop();
+    const sysTimer = setInterval(fetchLoop, 5000);
+
+    // 获取Vercel用量数据
+    fetch('/api/vercel-usage').then(r => r.json()).then(d => {
+      if (d.status === 200) setVercelUsage(d.data);
+    }).catch(() => {});
+
+    // 获取科协网盘更新日志
+    fetch('/api/pan/changelog').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setPanChangelog(d);
+    }).catch(() => {});
 
     // 初始化时加载网盘根目录
     alistListDir('/');
 
     return () => clearInterval(sysTimer);
   }, []);
+
+  const fetchPanAdmin = useCallback(async () => {
+    if (!adminToken) return;
+    setPanAdminLoading(true);
+    try {
+      const res = await fetch('/api/pan/admin', {
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPanAdminData(data);
+      } else {
+        setPanAdminMsg(`❌ ${data.error || '获取网盘数据失败'}`);
+      }
+    } catch {
+      setPanAdminMsg('❌ 接口连接异常');
+    } finally {
+      setPanAdminLoading(false);
+    }
+  }, [adminToken]);
+
+  const fetchPanActionLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/pan/action-logs?limit=${panActionLogsLimit}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setPanActionLogs(data);
+      }
+    } catch (e) {
+      console.error("Fetch action logs error:", e);
+    }
+  }, [panActionLogsLimit]);
+
+  const handlePanAdminAction = async (action: string, payload: any) => {
+    if (!adminToken) return;
+    try {
+      setPanAdminMsg("⏳ 正在同步指令到网盘...");
+      const res = await fetch('/api/pan/admin', {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action, ...payload })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPanAdminMsg("✅ 操作已成功同步！");
+        if (data.users || data.settings) {
+          setPanAdminData(prev => ({
+            users: data.users || prev?.users || [],
+            settings: data.settings || prev?.settings || {}
+          }));
+        }
+        if (action === 'changeAdminPassword') setPanAdminMsg("✅ 管理员密码修改成功");
+      } else {
+        setPanAdminMsg(`❌ 同步失败: ${data.error || '未知错误'}`);
+      }
+    } catch {
+      setPanAdminMsg("❌ 网络请求异常");
+    }
+  };
+
+  useEffect(() => {
+    if (context === 'pan') {
+      fetchPanActionLogs();
+      if (adminToken) {
+        fetchPanAdmin();
+      }
+    }
+  }, [context, adminToken, fetchPanAdmin, fetchPanActionLogs]);
 
   // 2. 真实数据抓取逻辑 (核心喵！)
   useEffect(() => {
@@ -264,9 +362,9 @@ export default function Home() {
         window.localStorage.setItem('ZERO_ADMIN_TOKEN', data.token);
       }
       setAuthPassword("");
-      setLogs(prev => [...prev, "[AUTH] 管理员登录成功喵！"]);
+      setLogs(prev => [...prev, "[AUTH] 控制核心接入成功喵！"]);
     } catch {
-      setAuthError("登录接口异常喵...");
+      setAuthError("远程控制链路响应异常喵...");
     } finally {
       setAuthLoading(false);
     }
@@ -277,7 +375,7 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem('ZERO_ADMIN_TOKEN');
     }
-    setLogs(prev => [...prev, "[AUTH] 已退出管理员登录喵。"]);
+    setLogs(prev => [...prev, "[AUTH] 已退出控制核心喵。"]);
   };
 
   // === AList 操作函数 ===
@@ -291,29 +389,47 @@ export default function Home() {
     return null;
   };
 
+  const logUserAction = async (action_type: string, action_item: string) => {
+    try {
+      await fetch('/api/log-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+           username: adminToken ? '数据控制台(DataPanel)' : '匿名终端(DataPanel)',
+           action_type,
+           action_item
+        })
+      });
+    } catch {}
+  };
+
   const openPreview = async (item: any, filePath: string) => {
     const type = getPreviewType(item.name);
     if (!type) return false;
-    setPreviewLoading(true);
+    
+    setPreviewItemMeta({ name: item.name, filePath, sign: item.sign, size: item.size, type });
+    setPreviewStarted(false);
+    setPreviewFile(null);
     setPreviewText('');
-    setPreviewArchiveFiles([]);
+    return true;
+  };
+
+  const loadPreviewContent = async () => {
+    if (!previewItemMeta || !previewItemMeta.type) return;
+    const { name, filePath, sign, size, type } = previewItemMeta;
+    
+    setPreviewLoading(true);
+    setPreviewStarted(true);
+    setPreviewText('');
+
+    logUserAction('预览', filePath);
+
     const isBaidu = alistPath.startsWith('/百度网盘') || alistPath.startsWith('/baidu');
     try {
       if (type === 'archive') {
-         // AList 压缩包挂载支持：请求 /api/alist with action: 'list' on filePath (压缩包也会被当做目录处理)
-         const listRes = await fetch('/api/alist', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
-           body: JSON.stringify({ action: 'list', path: filePath }),
-         });
-         const listData = await listRes.json();
-         if (listData.code === 200 && listData.data?.content) {
-            setPreviewArchiveFiles(listData.data.content);
-            setPreviewFile({ name: item.name, url: '', type, filePath, sign: item.sign, size: item.size });
-         } else {
-            setPreviewText(`⚠️ 无法解析压缩包目录结构或该节点尚未开启后端解压支持。\n详细错误: ${listData.message || '未知'}`);
-            setPreviewFile({ name: item.name, url: '', type, filePath, sign: item.sign, size: item.size });
-         }
+         const ext = name.split('.').pop()?.toLowerCase();
+         setPreviewText(`⚠️ 不支持前端解析格式: ${ext?.toUpperCase() || '未知'}\n为保证浏览稳定性，系统已将提取引擎卸载。\n请点击底部下载按钮直接下载，或在后端开启压缩包解压支持。`);
+         setPreviewFile({ name, url: '', type, filePath, sign, size });
          setPreviewLoading(false);
          return true;
       }
@@ -330,15 +446,17 @@ export default function Home() {
         return false;
       }
       let previewUrl = data.data.raw_url;
-      if (isBaidu) {
-        if ((item.size || 0) >= SIZE_THRESHOLD) {
+      
+      if (isBaidu && (type === 'text' || type === 'pdf')) {
+        if ((size || 0) >= SIZE_THRESHOLD) {
           previewUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(previewUrl)}`;
         } else {
           previewUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
         }
       }
+
       if (type === 'text') {
-        if ((item.size || 0) > 2 * 1024 * 1024) {
+        if ((size || 0) > 2 * 1024 * 1024) {
           setPreviewText('⚠️ 文件超过 2MB，无法在线预览。请下载后查看。');
         } else {
           try {
@@ -350,7 +468,7 @@ export default function Home() {
           }
         }
       }
-      setPreviewFile({ name: item.name, url: previewUrl, type, filePath, sign: item.sign, size: item.size });
+      setPreviewFile({ name, url: previewUrl, type, filePath, sign, size });
       setPreviewLoading(false);
       return true;
     } catch {
@@ -396,12 +514,14 @@ export default function Home() {
 
   // 小文件直接走 AList /d/ 302重定向（最快）
   const alistDirectDownload = (filePath: string, fileSign?: string) => {
+    logUserAction('直连下载', filePath);
     const url = fileSign ? `${ALIST_BASE}/d${filePath}?sign=${fileSign}` : `${ALIST_BASE}/d${filePath}`;
     window.open(url, '_blank');
   };
 
   // 服务端代理下载
   const alistProxyDownload = (filePath: string, fileName: string) => {
+    logUserAction('代理下载', filePath);
     let downloadUrl = `/api/alist-download?path=${encodeURIComponent(filePath)}`;
     const ccConfigStr = localStorage.getItem('ALIST_CUSTOM_CONFIG');
     if (ccConfigStr) {
@@ -503,6 +623,7 @@ export default function Home() {
       const data = await res.json();
       if (data.code === 200) {
         setAlistMsg('✅ 删除成功喵！');
+        logUserAction('删除', `${alistPath.replace(/\/+$/, '')}/${name}`);
         alistListDir(alistPath);
       } else {
         setAlistMsg(`❌ ${data.message}`);
@@ -522,6 +643,7 @@ export default function Home() {
       const data = await res.json();
       if (data.code === 200) {
         setAlistMsg('✅ 重命名成功喵！');
+        logUserAction('重命名', `${filePath} -> ${alistNewName.trim()}`);
         setAlistRenaming(null);
         setAlistNewName('');
         alistListDir(alistPath);
@@ -557,6 +679,7 @@ export default function Home() {
       const uploadData = await uploadRes.json();
       if (uploadData.code === 200) {
         setAlistMsg('✅ 上传成功喵！');
+        logUserAction('上传', uploadPath);
         setAlistUploadFile(null);
         alistListDir(alistPath);
       } else {
@@ -580,7 +703,7 @@ export default function Home() {
           </div>
           <div className="space-y-3">
             <div className="text-xs text-zinc-400">
-              请输入管理员密码，解锁 Supabase SQL 终端与 GitHub 上传控制台喵。
+              请输入系统核心密码，解锁 Supabase SQL 终端与 GitHub 上传控制台喵。
             </div>
             <input
               type="password"
@@ -589,7 +712,7 @@ export default function Home() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleLogin();
               }}
-              placeholder="管理员密码"
+              placeholder="控制核心密码"
               className="w-full bg-black border border-zinc-800 rounded px-3 py-2 text-xs text-white outline-none focus:border-pink-500 transition-colors"
             />
             <button
@@ -788,7 +911,7 @@ export default function Home() {
       const sql = sqlCmd.trim();
       if (!sql) return;
       if (!adminToken) {
-        setSqlError("请先登录管理员账户喵...");
+        setSqlError("等待获取控制核心权限喵...");
         return;
       }
       setLogs(prev => [...prev, `[SQL_EDITOR] ${sql}`]);
@@ -829,7 +952,7 @@ export default function Home() {
 
   const uploadToGithub = async () => {
     if (!adminToken) {
-      setGhUploadMsg("请先登录管理员账户喵...");
+      setGhUploadMsg("未能检测到认证密钥，需要先对接控制核心喵...");
       return;
     }
     if (!context || context === 'home') {
@@ -898,7 +1021,7 @@ export default function Home() {
 
   const handleAddDomain = async () => {
     if (!adminToken) {
-      setDomainAddMsg("需要管理员权限喵...");
+      setDomainAddMsg("需要核心控制权限喵...");
       return;
     }
     const domain = newDomain.trim();
@@ -1052,7 +1175,9 @@ export default function Home() {
       }
     };
     reader.readAsDataURL(file);
+
   };
+
   return (
     <div className="h-screen bg-[#050506] text-zinc-300 font-mono flex flex-col overflow-hidden selection:bg-pink-500/30">
 
@@ -1152,6 +1277,46 @@ export default function Home() {
               </div>
 
 
+              {/* 科协网盘更新日志 */}
+              <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 md:p-6 mb-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-500 font-bold">💽</span>
+                    <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Netdisk_Changelog_Stream</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-600">Display_Count:</span>
+                    <select
+                      value={panChangelogLimit}
+                      onChange={(e) => setPanChangelogLimit(Number(e.target.value))}
+                      className="bg-black/40 border border-zinc-800 rounded px-2 py-0.5 text-[10px] text-zinc-400 outline-none focus:border-pink-500 transition-colors"
+                    >
+                      <option value="5">5 Logs</option>
+                      <option value="10">10 Logs</option>
+                      <option value="20">20 Logs</option>
+                      <option value="999">All Logs</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {panChangelog.length === 0 ? (
+                    <div className="text-xs text-zinc-600 animate-pulse py-4">⏳ 正在同步网盘变更数据...</div>
+                  ) : (
+                    panChangelog.slice(0, panChangelogLimit).map((log, idx) => (
+                      <div key={idx} className="relative pl-5 border-l border-zinc-800 py-1 hover:bg-zinc-800/20 transition-colors rounded-r">
+                        <div className="absolute w-1.5 h-1.5 bg-blue-500/50 rounded-full -left-[3.5px] top-3"></div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[11px] font-bold text-blue-400 font-mono">v{log.version}</span>
+                          <span className="text-[9px] text-zinc-600 font-mono bg-zinc-900 px-1 rounded">{log.date}</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">{log.message}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+
               {/* 大文件下载方式选择弹窗 */}
               {alistDownloadModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAlistDownloadModal(null)}>
@@ -1165,55 +1330,10 @@ export default function Home() {
                     </div>
 
                     <div className="space-y-2">
-                      {/* 自动加UA直接下载 */}
+                      {/* Cloudflare Workers 边缘代理 (方法1) */}
                       <button
                         onClick={() => {
-                          const downloadUrl = `/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`;
-                          window.open(downloadUrl, '_blank');
-                          setAlistDownloadModal(null);
-                        }}
-                        className="w-full flex items-center justify-between bg-zinc-900 border border-pink-500/40 rounded-lg px-3 py-2.5 hover:border-pink-400 transition-colors text-left"
-                      >
-                        <div>
-                          <div className="text-[11px] font-bold text-pink-400">🔥 直接下载（自动加 UA: pan.baidu.com）</div>
-                          <div className="text-[10px] text-zinc-500">服务器自动添加 User-Agent 请求头，一键下载</div>
-                        </div>
-                      </button>
-
-                      {/* 复制直链 */}
-                      <button
-                        onClick={() => {
-                          fetch('/api/alist', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
-                            body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
-                          }).then(r => r.json()).then(data => {
-                            if (data.code === 200 && data.data?.raw_url) {
-                              navigator.clipboard.writeText(data.data.raw_url);
-                              setAlistMsg('✅ 百度CDN真实直链已复制！粘贴到IDM/NDM即可满速下载（记得配好UA: pan.baidu.com）');
-                            } else {
-                              const sign = data.code === 200 ? (data.data?.sign || '') : '';
-                              const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
-                              navigator.clipboard.writeText(url);
-                              setAlistMsg('✅ 链接已复制（备用地址）');
-                            }
-                          }).catch(() => {
-                            navigator.clipboard.writeText(`${ALIST_BASE}/d${alistDownloadModal!.filePath}`);
-                            setAlistMsg('✅ 链接已复制');
-                          });
-                          setAlistDownloadModal(null);
-                        }}
-                        className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-emerald-500/50 transition-colors text-left"
-                      >
-                        <div>
-                          <div className="text-[11px] font-bold text-emerald-400">🚀 复制直链（迅雷/IDM/NDM）</div>
-                          <div className="text-[10px] text-zinc-600">复制百度CDN原始地址，搭配IDM/NDM配好UA可达50MB/s</div>
-                        </div>
-                      </button>
-
-                      {/* Cloudflare Workers 边缘代理 */}
-                      <button
-                        onClick={() => {
+                          setAlistMsg('⏳ 正在连接 cf.ryantan.fun 代理节点...');
                           fetch('/api/alist', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -1223,20 +1343,93 @@ export default function Home() {
                               const cfUrl = `https://cf.ryantan.fun/?url=${encodeURIComponent(data.data.raw_url)}`;
                               window.location.href = cfUrl;
                             } else {
-                              setAlistMsg('❌ 获取直链失败，无法走 CF 代理');
+                              setAlistMsg('❌ 获取直链失败');
                             }
                           }).catch(() => setAlistMsg('❌ 接口异常'));
                           setAlistDownloadModal(null);
                         }}
-                        className="w-full flex items-center justify-between bg-zinc-900 border border-blue-500/30 rounded-lg px-3 py-2.5 hover:border-blue-400 transition-colors text-left"
+                        className="w-full flex items-center justify-between transition-all duration-300 bg-zinc-900 border rounded-xl px-4 py-3 text-left hover:scale-[1.02] active:scale-[0.98] group"
+                        style={{ 
+                          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)',
+                          borderColor: 'rgba(59, 130, 246, 0.3)'
+                        }}
                       >
                         <div>
-                          <div className="text-[11px] font-bold text-blue-400">☁️ Cloudflare 边缘加速</div>
-                          <div className="text-[10px] text-zinc-500">CF Worker 注入 UA，全球边缘节点中转，不耗服务器带宽</div>
+                          <div className="text-[12px] font-bold text-blue-400 group-hover:text-blue-300 transition-colors">🌟 Cloudflare 边缘加速 (强烈推荐)</div>
+                          <div className="text-[10px] text-zinc-500">通过海外节点无痕中转，全球加速，不耗服务器流量</div>
+                        </div>
+                        <div className="text-blue-500/30 group-hover:text-blue-400 transition-colors">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                          </svg>
                         </div>
                       </button>
 
-                      {/* ⚡ 302 直链 */}
+                      {/* 复制直链 (方法2) */}
+                      <button
+                        onClick={() => {
+                          fetch('/api/alist', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
+                            body: JSON.stringify({ action: 'get', path: alistDownloadModal.filePath }),
+                          }).then(r => r.json()).then(data => {
+                            if (data.code === 200 && data.data?.raw_url) {
+                              navigator.clipboard.writeText(data.data.raw_url);
+                              setAlistMsg('✅ 百度CDN真实直链已复制！粘贴到IDM/NDM即可满速下载');
+                            } else {
+                              const sign = data.code === 200 ? (data.data?.sign || '') : '';
+                              const url = sign ? `${ALIST_BASE}/d${alistDownloadModal!.filePath}?sign=${sign}` : `${ALIST_BASE}/d${alistDownloadModal!.filePath}`;
+                              navigator.clipboard.writeText(url);
+                              setAlistMsg('✅ 链接已复制（备用）');
+                            }
+                          }).catch(() => {
+                            navigator.clipboard.writeText(`${ALIST_BASE}/d${alistDownloadModal!.filePath}`);
+                            setAlistMsg('✅ 链接已复制');
+                          });
+                          setAlistDownloadModal(null);
+                        }}
+                        className="w-full flex items-center justify-between bg-zinc-900 border rounded-xl px-4 py-3 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-left group"
+                        style={{ 
+                          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%)',
+                          borderColor: 'rgba(16, 185, 129, 0.3)'
+                        }}
+                      >
+                        <div>
+                          <div className="text-[12px] font-bold text-emerald-400 group-hover:text-emerald-300 transition-colors">🚀 复制直链 (迅雷/IDM/NDM)</div>
+                          <div className="text-[10px] text-zinc-500 group-hover:text-zinc-400">搭配 IDM/NDM 并设置 UA 为 pan.baidu.com 可满速</div>
+                        </div>
+                        <div className="text-emerald-500/30 group-hover:text-emerald-400 transition-colors">
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                          </svg>
+                        </div>
+                      </button>
+
+                      {/* 自动加UA直接下载 (方法3 - 可禁用) */}
+                      <button
+                        onClick={() => {
+                          if (globalDisableThird) return;
+                          const downloadUrl = `/api/alist-download?path=${encodeURIComponent(alistDownloadModal.filePath)}`;
+                          window.open(downloadUrl, '_blank');
+                          setAlistDownloadModal(null);
+                        }}
+                        disabled={globalDisableThird}
+                        className={`w-full flex items-center justify-between transition-all bg-zinc-900 border rounded-lg px-3 py-2.5 text-left ${globalDisableThird ? 'border-zinc-800 opacity-50 cursor-not-allowed' : 'border-pink-500/40 hover:border-pink-400'}`}
+                      >
+                        <div>
+                          <div className={`text-[11px] font-bold ${globalDisableThird ? 'text-zinc-500' : 'text-pink-400'}`}>
+                            🔥 服务器直接下载 {globalDisableThird ? '(已被系统禁用)' : '(备用)'}
+                          </div>
+                          <div className="text-[10px] text-zinc-500">消耗服务器流量，服务器注入 UA 授权</div>
+                          {vercelUsage && vercelUsage.metrics && vercelUsage.metrics.fastOriginTransfer && (
+                             <div className="text-[9px] text-zinc-600 mt-1">
+                               ⚡ Vercel Fast Origin Transfer: {(vercelUsage.metrics.fastOriginTransfer.value / 1073741824).toFixed(2)}GB / 100GB
+                             </div>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* ⚡ 302 直链 (方法4) */}
                       <button
                         onClick={() => { alistDirectDownload(alistDownloadModal.filePath, alistDownloadModal.sign); setAlistDownloadModal(null); }}
                         className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 hover:border-zinc-600 transition-colors text-left"
@@ -1252,14 +1445,14 @@ export default function Home() {
               )}
 
               {/* 文件预览弹窗 */}
-              {((previewFile || previewLoading) && previewItemMeta) && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 backdrop-blur-xl" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); }}>
+              {(previewItemMeta) && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 backdrop-blur-xl" style={{ background: 'rgba(0,0,0,0.9)' }} onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); setPreviewStarted(false); }}>
                   <div className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl border border-zinc-800" style={{ background: '#0a0a0b' }} onClick={e => e.stopPropagation()}>
                     {/* 顶部栏 */}
                     <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 shrink-0 bg-black/60">
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-base shrink-0">
-                          {previewFile?.type === 'image' ? '🖼️' : previewFile?.type === 'video' ? '🎬' : previewFile?.type === 'pdf' ? '📄' : previewFile?.type === 'archive' ? '📦' : '📝'}
+                          {previewItemMeta?.type === 'image' ? '🖼️' : previewItemMeta?.type === 'video' ? '🎬' : previewItemMeta?.type === 'pdf' ? '📄' : previewItemMeta?.type === 'archive' ? '📦' : '📝'}
                         </span>
                         <div className="min-w-0">
                           <h3 className="text-xs font-bold text-zinc-200 truncate">{previewItemMeta?.name || '加载中...'}</h3>
@@ -1269,7 +1462,7 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {((previewFile || previewLoading) && previewItemMeta) && (
+                        {previewItemMeta && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1282,20 +1475,27 @@ export default function Home() {
                               } else {
                                 alistDirectDownload(previewItemMeta.filePath, previewItemMeta.sign);
                               }
-                              setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null);
+                              setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); setPreviewStarted(false);
                             }}
                             className="text-[10px] font-bold px-3 py-1.5 rounded bg-pink-500 text-white hover:bg-pink-400 transition-colors"
                           >
                             ⬇️ 下载
                           </button>
                         )}
-                        <button onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); }} className="hover:text-white text-zinc-500 transition-colors p-1 text-lg">✕</button>
+                        <button onClick={() => { setPreviewFile(null); setPreviewText(''); setPreviewItemMeta(null); setPreviewStarted(false); }} className="hover:text-white text-zinc-500 transition-colors p-1 text-lg">✕</button>
                       </div>
                     </div>
                     
                     {/* 预览主体 */}
                     <div className="flex-1 overflow-auto flex items-center justify-center p-4" style={{ background: '#050506' }}>
-                      {previewLoading && !previewFile ? (
+                      {!previewStarted ? (
+                        <div className="flex flex-col items-center justify-center gap-4">
+                          <div className="text-zinc-500 text-sm">点击下方按钮开始加载并预览文件</div>
+                          <button onClick={loadPreviewContent} className="px-6 py-2.5 bg-pink-600 hover:bg-pink-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(236,72,153,0.3)] transition-all">
+                            ▶️ 点击加载预览
+                          </button>
+                        </div>
+                      ) : previewLoading && !previewFile ? (
                         <div className="text-zinc-500 text-xs animate-pulse">⏳ 正在加载预览...</div>
                       ) : previewFile?.type === 'image' ? (
                         <img src={previewFile.url} alt={previewFile.name} className="max-w-full max-h-[78vh] object-contain rounded-lg" />
@@ -1308,32 +1508,9 @@ export default function Home() {
                           {previewText || '加载中...'}
                         </pre>
                       ) : previewFile?.type === 'archive' ? (
-                        <div className="w-full h-full overflow-auto text-xs text-zinc-400 p-5 rounded-lg" style={{ background: '#0d0d0e', maxHeight: '78vh' }}>
+                        <div className="w-full h-full overflow-auto flex flex-col items-center justify-center text-xs text-zinc-400 p-5 rounded-lg" style={{ background: '#0d0d0e', maxHeight: '78vh' }}>
                           <div className="font-bold text-sm mb-4 text-emerald-400 flex items-center gap-2"><span>📦</span> 压缩包内容预览</div>
-                          {previewArchiveFiles.length > 0 ? (
-                            <div className="space-y-1">
-                               <div className="grid grid-cols-12 gap-2 text-zinc-500 border-b border-zinc-800/50 pb-2 mb-2 font-bold px-2 text-[10px]">
-                                 <div className="col-span-8">文件名 Name</div>
-                                 <div className="col-span-4 text-right">大小 Size</div>
-                               </div>
-                               {previewArchiveFiles.map((af, i) => (
-                                 <div key={i} className="grid grid-cols-12 gap-2 items-center hover:bg-zinc-800/30 p-2 rounded transition-colors group">
-                                   <div className="col-span-8 flex items-center gap-2 truncate">
-                                     <span className="text-xs opacity-80">{af.is_dir ? '📁' : '📄'}</span>
-                                     <span className={af.is_dir ? 'text-blue-400/90 font-bold text-[11px]' : 'text-zinc-300 text-[11px]'}>{af.name || ''}</span>
-                                   </div>
-                                   <div className="col-span-4 text-right text-zinc-500 font-mono text-[10px]">
-                                     {!af.is_dir && formatSize(af.size)}
-                                   </div>
-                                 </div>
-                               ))}
-                               <div className="mt-6 text-zinc-600/60 text-center text-[10px]">
-                                 当前仅支持查看压缩包顶级目录。<br/>如需解压缩、查看深层内容或下载单个文件，请点击上方按钮下载整个压缩包至本地。
-                               </div>
-                            </div>
-                          ) : (
-                            <div className="text-zinc-500 whitespace-pre-wrap">{previewText}</div>
-                          )}
+                          <div className="text-zinc-500 whitespace-pre-wrap text-center">{previewText}</div>
                         </div>
                       ) : null}
                     </div>
@@ -1571,7 +1748,7 @@ export default function Home() {
                                   {file.modified ? new Date(file.modified).toLocaleDateString() : ''}
                                 </span>
 
-                                {/* 管理员操作按钮 */}
+                                {/* 核心操作按钮 */}
                                 {adminToken && (
                                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                     <button
@@ -1667,6 +1844,30 @@ export default function Home() {
                           )}
                         </div>
                       </>
+                    )}
+                    {context === 'pan' && panChangelog.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                        <div className="text-[10px] text-zinc-500 uppercase font-bold mb-2 flex justify-between">
+                          <span>🚀 Latest Release Note</span>
+                          <span className="text-zinc-600 font-mono">v{panChangelog[0].version}</span>
+                        </div>
+                        <div className="text-xs text-pink-400/80 leading-relaxed italic">
+                          "{panChangelog[0].message}"
+                        </div>
+                      </div>
+                    )}
+                    {context === 'pan' && panActionLogs.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                        <div className="text-[10px] text-zinc-500 uppercase font-bold mb-2 flex justify-between">
+                          <span>📜 Latest Netdisk Action</span>
+                          <span className="text-zinc-600 font-mono text-[9px]">
+                            {new Date(panActionLogs[0].created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                          </span>
+                        </div>
+                        <div className="text-xs text-blue-400/90 font-sans">
+                          {panActionLogs[0].username}: {panActionLogs[0].action_type} {panActionLogs[0].action_item}
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -1791,6 +1992,210 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+
+                  {/* 科协网盘：超级权限管理中心 */}
+                  {context === 'pan' && adminToken && (
+                    <div className="space-y-6 pt-6">
+                      <h2 className="text-pink-500 text-[10px] font-black tracking-widest uppercase italic flex items-center gap-2">
+                        <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></span>
+                        Netdisk_Remote_Commander
+                      </h2>
+                      
+                      {/* 全局开关与核心设置 */}
+                      <div className="bg-zinc-900/40 border-2 border-pink-500/20 rounded-2xl p-6 glow-pink">
+                        <div className="flex items-center justify-between mb-6">
+                          <div>
+                            <div className="text-xs font-bold text-white mb-1">CORE COMMAND CENTER</div>
+                            <div className="text-[10px] text-zinc-500 uppercase font-mono">Control_Matrix_v2</div>
+                          </div>
+                          {panAdminLoading && <div className="text-[10px] text-pink-400 animate-pulse font-mono font-bold">同步中...</div>}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                          <button 
+                            onClick={() => handlePanAdminAction('updateSettings', { settings: { ...panAdminData?.settings, guestMode: !panAdminData?.settings?.guestMode } })}
+                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${panAdminData?.settings?.guestMode ? 'bg-pink-500/10 border-pink-500/30 text-pink-400' : 'bg-zinc-900/60 border-zinc-800 text-zinc-500'}`}
+                          >
+                            <div className="text-left">
+                              <div className="text-[11px] font-bold">访客公开模式</div>
+                              <div className="text-[9px] opacity-60">GUEST_ACCESS_OVERRIDE</div>
+                            </div>
+                            <div className={`w-8 h-4 rounded-full relative transition-colors ${panAdminData?.settings?.guestMode ? 'bg-pink-500' : 'bg-zinc-700'}`}>
+                              <div className={`absolute top-1 w-2 h-2 bg-white rounded-full transition-all ${panAdminData?.settings?.guestMode ? 'right-1' : 'left-1'}`} />
+                            </div>
+                          </button>
+
+                          <button 
+                            onClick={() => handlePanAdminAction('updateSettings', { settings: { ...panAdminData?.settings, disableThirdDownload: !panAdminData?.settings?.disableThirdDownload } })}
+                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${panAdminData?.settings?.disableThirdDownload ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' : 'bg-zinc-900/60 border-zinc-800 text-zinc-500'}`}
+                          >
+                            <div className="text-left">
+                              <div className="text-[11px] font-bold">禁用边缘加速</div>
+                              <div className="text-[9px] opacity-60">CF_PROXY_GATE_KEEPER</div>
+                            </div>
+                            <div className={`w-8 h-4 rounded-full relative transition-colors ${panAdminData?.settings?.disableThirdDownload ? 'bg-yellow-500' : 'bg-zinc-700'}`}>
+                              <div className={`absolute top-1 w-2 h-2 bg-white rounded-full transition-all ${panAdminData?.settings?.disableThirdDownload ? 'right-1' : 'left-1'}`} />
+                            </div>
+                          </button>
+                        </div>
+
+                        {/* 用户列表 */}
+                        <div className="bg-black/40 border border-zinc-800/50 rounded-xl p-4">
+                          <div className="text-[10px] text-zinc-500 font-bold uppercase mb-4 tracking-widest flex justify-between">
+                            <span>User_Identity_Register</span>
+                            <button onClick={fetchPanAdmin} className="text-pink-500 hover:text-pink-400">REFRESH</button>
+                          </div>
+                          <div className="space-y-3">
+                            {panAdminData?.users?.map((u: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between bg-zinc-950/50 border border-zinc-800 p-3 rounded-lg group">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${u.role === 'admin' ? 'bg-pink-500/20 text-pink-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                                    {u.username[0].toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] font-bold text-zinc-200">{u.username}</div>
+                                    <div className="text-[9px] text-zinc-600 font-mono tracking-tighter uppercase">{u.role}</div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {u.username !== 'admin' && (
+                                    <>
+                                      <select 
+                                        value={u.role}
+                                        onChange={(e) => handlePanAdminAction('updateRole', { username: u.username, role: e.target.value })}
+                                        className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-[9px] text-zinc-400"
+                                      >
+                                        <option value="guest">GUEST</option>
+                                        <option value="manager">MANAGER</option>
+                                        <option value="admin">ADMIN</option>
+                                      </select>
+                                      <button 
+                                        onClick={() => confirm(`确定要注销用户 ${u.username} 吗？`) && handlePanAdminAction('remove', { username: u.username })}
+                                        className="text-zinc-600 hover:text-red-500 p-0.5"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          {/* 快捷操作：新增用户与改密 */}
+                          <div className="mt-6 pt-4 border-t border-zinc-800/80 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <div className="text-[10px] text-zinc-600 uppercase mb-2">Add_New_Explorer</div>
+                              <form 
+                                autoComplete="off"
+                                className="flex flex-col gap-2"
+                                onSubmit={(e: any) => {
+                                  e.preventDefault();
+                                  const u = e.target.username.value;
+                                  const p = e.target.password.value;
+                                  if (u && p) {
+                                    handlePanAdminAction('add', { username: u, password: p, role: 'guest' });
+                                    e.target.reset();
+                                  }
+                                }}
+                              >
+                                <input name="username" placeholder="Username" className="bg-black/60 border border-zinc-800 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-pink-500" />
+                                <input name="password" type="password" placeholder="Password" className="bg-black/60 border border-zinc-800 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-pink-500" />
+                                <button type="submit" className="bg-zinc-800 hover:bg-pink-500 text-[9px] font-bold py-1 px-2 rounded transition-colors uppercase">Register_User</button>
+                              </form>
+                            </div>
+                            <div>
+                               <div className="text-[10px] text-zinc-600 uppercase mb-2">Change_Root_Key</div>
+                               <form
+                                 autoComplete="off"
+                                 className="flex flex-col gap-2"
+                                 onSubmit={(e: any) => {
+                                   e.preventDefault();
+                                   const p = e.target.new_password.value;
+                                   if (p && confirm("警告：修改管理密码将立即同步到网盘生产环境，是否继续？")) {
+                                     handlePanAdminAction('changeAdminPassword', { password: p });
+                                     e.target.reset();
+                                   }
+                                 }}
+                               >
+                                 <input name="new_password" type="password" placeholder="New Admin Password" className="bg-black/60 border border-zinc-800 rounded px-2 py-1 text-[10px] text-white outline-none focus:border-pink-500" />
+                                 <button type="submit" className="bg-pink-500/10 border border-pink-500/50 text-pink-400 hover:bg-pink-500 hover:text-white text-[9px] font-bold py-1 px-2 rounded transition-all uppercase">Overdrive_Root</button>
+                               </form>
+                            </div>
+                          </div>
+                        </div>
+
+                        {panAdminMsg && (
+                          <div className={`mt-4 p-3 rounded-lg border text-[10px] font-mono ${panAdminMsg.includes('✅') ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-400' : 'bg-pink-500/5 border-pink-500/30 text-pink-400'}`}>
+                            {panAdminMsg}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 科协网盘：行为审计日志 */}
+                  {context === 'pan' && (
+                    <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/20 transition-all">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-zinc-500 text-[10px] font-black tracking-widest uppercase italic flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
+                          Netdisk_Action_Audit
+                        </h2>
+                        <div className="flex items-center gap-3">
+                          <select 
+                            value={panActionLogsLimit}
+                            onChange={(e) => setPanActionLogsLimit(Number(e.target.value))}
+                            className="bg-black/40 border border-zinc-800 rounded px-2 py-1 text-[10px] text-zinc-400 outline-none focus:border-blue-500 transition-colors"
+                          >
+                            <option value={10}>10 Logs</option>
+                            <option value={20}>20 Logs</option>
+                            <option value={50}>50 Logs</option>
+                            <option value={100}>100 Logs</option>
+                          </select>
+                          <button onClick={fetchPanActionLogs} className="text-[10px] text-blue-500 hover:text-blue-400 font-bold uppercase tracking-tight">Sync_Logs</button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        {panActionLogs.length === 0 ? (
+                          <div className="text-xs text-zinc-600 italic py-4 text-center">暂无审计记录喵...</div>
+                        ) : (
+                          panActionLogs.map((log: any, idx: number) => (
+                            <div key={idx} className="bg-black/30 border border-zinc-800/50 rounded-xl p-3 hover:border-blue-500/30 transition-all group/log">
+                              <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-[9px] font-bold rounded uppercase border border-blue-500/20">{log.action_type}</span>
+                                  <span className="text-[11px] font-bold text-zinc-300">{log.username}</span>
+                                </div>
+                                <span className="text-[9px] text-zinc-600 font-mono">
+                                  {new Date(log.created_at).toLocaleString('zh-CN', { 
+                                    year: 'numeric', 
+                                    month: '2-digit', 
+                                    day: '2-digit', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit', 
+                                    second: '2-digit',
+                                    hour12: false 
+                                  })}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-zinc-400 break-all mb-2 leading-relaxed">
+                                <span className="text-zinc-500">Target: </span>{log.action_item}
+                              </div>
+                              <div className="flex justify-between items-center text-[9px] text-zinc-600 font-mono">
+                                <div className="flex items-center gap-1">
+                                  <span>📍</span>
+                                  <span>{log.location || 'Unknown_Location'}</span>
+                                </div>
+                                <span className="opacity-0 group-hover/log:opacity-100 transition-opacity bg-zinc-900 px-1 rounded">{log.ip}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* GitHub 一键上传文件 */}
                   <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 space-y-3">

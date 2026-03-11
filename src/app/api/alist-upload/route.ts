@@ -9,7 +9,7 @@ export async function PUT(request: Request) {
     // 权限校验
     const authHeader = request.headers.get('authorization') || undefined;
     if (!verifyAdminToken(authHeader)) {
-        return NextResponse.json({ code: 401, message: '需要管理员权限喵...' }, { status: 401 });
+        return NextResponse.json({ code: 401, message: '需要核心控制权限喵...' }, { status: 401 });
     }
 
     try {
