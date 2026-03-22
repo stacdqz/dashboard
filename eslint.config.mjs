@@ -9,6 +9,11 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    "**/.next/**",
+    "**/node_modules/**",
+    "baidu-pan-alist/**",
+    "test-db.js",
+    "test_vercel_api.js",
     "out/**",
     "build/**",
     "next-env.d.ts",

@@ -23,31 +23,61 @@ export function signAdminToken() {
   return `${payloadB64}.${sig}`;
 }
 
-export function verifyAdminToken(authHeader?: string): boolean {
+export type AdminTokenVerifyResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | 'missing_secret'
+        | 'missing_token'
+        | 'bad_format'
+        | 'bad_sig'
+        | 'bad_payload'
+        | 'expired';
+    };
+
+function verifyAdminTokenValueDetailed(token: string): AdminTokenVerifyResult {
   const secret = getSecret();
-  if (!secret) return false;
-  if (!authHeader) return false;
+  if (!secret) return { ok: false, reason: 'missing_secret' };
 
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') return false;
-
-  const token = parts[1];
   const [payloadB64, sig] = token.split('.');
-  if (!payloadB64 || !sig) return false;
+  if (!payloadB64 || !sig) return { ok: false, reason: 'bad_format' };
 
   const hmac = crypto.createHmac('sha256', secret);
   hmac.update(payloadB64);
   const expectedSig = hmac.digest('hex');
-  if (expectedSig !== sig) return false;
+  if (expectedSig !== sig) return { ok: false, reason: 'bad_sig' };
 
   try {
     const payloadStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
     const payload = JSON.parse(payloadStr) as { exp?: number };
-    if (!payload.exp || typeof payload.exp !== 'number') return false;
-    if (Date.now() > payload.exp) return false;
-    return true;
+    if (!payload.exp || typeof payload.exp !== 'number') {
+      return { ok: false, reason: 'bad_payload' };
+    }
+    if (Date.now() > payload.exp) return { ok: false, reason: 'expired' };
+    return { ok: true };
   } catch {
-    return false;
+    return { ok: false, reason: 'bad_payload' };
   }
 }
 
+export function verifyAdminTokenDetailed(
+  authHeaderOrToken?: string,
+): AdminTokenVerifyResult {
+  if (!authHeaderOrToken) return { ok: false, reason: 'missing_token' };
+
+  const trimmed = authHeaderOrToken.trim();
+
+  if (trimmed.toLowerCase().startsWith('bearer ')) {
+    const token = trimmed.slice('bearer '.length).trim();
+    if (!token) return { ok: false, reason: 'missing_token' };
+    return verifyAdminTokenValueDetailed(token);
+  }
+
+  if (!trimmed) return { ok: false, reason: 'missing_token' };
+  return verifyAdminTokenValueDetailed(trimmed);
+}
+
+export function verifyAdminToken(authHeaderOrToken?: string): boolean {
+  return verifyAdminTokenDetailed(authHeaderOrToken).ok;
+}

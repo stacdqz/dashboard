@@ -171,6 +171,14 @@ export default function Home() {
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setPanAdminMsg(`⚠️ ${data.error || '权限失效，请重新 login'}`);
+        setAdminToken(null);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('ZERO_ADMIN_TOKEN');
+        }
+        return;
+      }
       if (res.ok) {
         setPanAdminData(data);
       } else {
@@ -208,6 +216,14 @@ export default function Home() {
         body: JSON.stringify({ action, ...payload })
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setPanAdminMsg(`⚠️ ${data.error || 'Token invalid. Please login again.'}`);
+        setAdminToken(null);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('ZERO_ADMIN_TOKEN');
+        }
+        return;
+      }
       if (res.ok) {
         setPanAdminMsg("✅ 操作已成功同步！");
         if (data.users || data.settings) {
@@ -216,7 +232,8 @@ export default function Home() {
             settings: data.settings || prev?.settings || {}
           }));
         }
-        if (action === 'changeAdminPassword') setPanAdminMsg("✅ 管理员密码修改成功");
+
+        if (action === 'changeAdminPassword') setPanAdminMsg("Admin password changed.");
       } else {
         setPanAdminMsg(`❌ 同步失败: ${data.error || '未知错误'}`);
       }

@@ -1,7 +1,7 @@
-require('dotenv').config({ path: '.env.local' });
+const fs = require('fs');
 
 async function test() {
-    const token = process.env.VERCEL_TOKEN;
+    const token = process.env.VERCEL_TOKEN || '';
     const teamId = 'team_yhwls-projects';
     const now = new Date();
     const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

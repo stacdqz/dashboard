@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyAdminToken } from '../../_auth';
+import { verifyAdminTokenDetailed } from '../../_auth';
 
 export async function POST(request: Request) {
   // 1. Verify dashboard admin token
@@ -8,14 +8,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized Dashboard Access' }, { status: 401 });
   }
 
-  const dashboardToken = authHeader.split(' ')[1];
-  if (!verifyAdminToken(dashboardToken)) {
-    return NextResponse.json({ error: 'Invalid Dashboard Token' }, { status: 401 });
+  const auth = verifyAdminTokenDetailed(authHeader);
+  if (!auth.ok) {
+    if (auth.reason === 'missing_secret') {
+      return NextResponse.json(
+        { error: 'Server misconfigured: missing ADMIN_TOKEN_SECRET' },
+        { status: 500 },
+      );
+    }
+    const error =
+      auth.reason === 'expired'
+        ? 'Dashboard Token Expired'
+        : 'Invalid Dashboard Token';
+    return NextResponse.json({ error, reason: auth.reason }, { status: 401 });
   }
 
   // 2. Prepare request to Netdisk project
   const panApiUrl = process.env.NEXT_PUBLIC_PAN_API_URL || 'https://pan.cdqzsta.tech';
-  const panAdminPassword = process.env.PAN_ADMIN_PASSWORD;
+  const panAdminPassword = process.env.PAN_ADMIN_PASSWORD || '123456';
 
   try {
     const body = await request.json();
@@ -67,13 +77,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized Dashboard Access' }, { status: 401 });
   }
 
-  const dashboardToken = authHeader.split(' ')[1];
-  if (!verifyAdminToken(dashboardToken)) {
-    return NextResponse.json({ error: 'Invalid Dashboard Token' }, { status: 401 });
+  const auth = verifyAdminTokenDetailed(authHeader);
+  if (!auth.ok) {
+    if (auth.reason === 'missing_secret') {
+      return NextResponse.json(
+        { error: 'Server misconfigured: missing ADMIN_TOKEN_SECRET' },
+        { status: 500 },
+      );
+    }
+    const error =
+      auth.reason === 'expired'
+        ? 'Dashboard Token Expired'
+        : 'Invalid Dashboard Token';
+    return NextResponse.json({ error, reason: auth.reason }, { status: 401 });
   }
 
   const panApiUrl = process.env.NEXT_PUBLIC_PAN_API_URL || 'https://pan.cdqzsta.tech';
-  const panAdminPassword = process.env.PAN_ADMIN_PASSWORD;
+  const panAdminPassword = process.env.PAN_ADMIN_PASSWORD || '123456';
 
   try {
     const loginRes = await fetch(`${panApiUrl}/api/login`, {
